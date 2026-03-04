@@ -3,6 +3,7 @@ using GorillaInfo;
 
 public class SettingsHandler
 {
+    private static readonly string[] GunStyles = { "Purple", "Red", "Green", "Yellow" };
     private TextMesh _lockOnText, _nametagsText, _gunStyleText, _passThroughText;
     private bool _lockOnEnabled, _nametagsEnabled, _passThroughEnabled;
     private int _gunStyleIndex;
@@ -80,9 +81,8 @@ public class SettingsHandler
     {
         _gunStyleIndex = (_gunStyleIndex + 1) % 4;
         GorillaInfoMain.Instance.gunLib.SetGunStyle(_gunStyleIndex);
-        string[] styles = new[] { "Purple", "Red", "Green", "Yellow" };
         if (_gunStyleText != null)
-            _gunStyleText.text = $"GunStyle: {styles[_gunStyleIndex]}";
+            _gunStyleText.text = $"GunStyle: {GunStyles[_gunStyleIndex]}";
     }
 
     public void TogglePassThroughGun()
@@ -97,7 +97,7 @@ public class SettingsHandler
     {
         if (_lockOnText != null) _lockOnText.text = _lockOnEnabled ? "LockOn: ON" : "LockOn: OFF";
         if (_nametagsText != null) _nametagsText.text = _nametagsEnabled ? "Nametags: ON" : "Nametags: OFF";
-        if (_gunStyleText != null) _gunStyleText.text = $"GunStyle: {new[] { "Purple", "Red", "Green", "Yellow" }[_gunStyleIndex]}";
+        if (_gunStyleText != null) _gunStyleText.text = $"GunStyle: {GunStyles[_gunStyleIndex]}";
         if (_passThroughText != null) _passThroughText.text = _passThroughEnabled ? "PassThrough: ON" : "PassThrough: OFF";
     }
 }

@@ -196,7 +196,8 @@ public class MoreInfoHandler
         TextMesh text = textObj.AddComponent<TextMesh>();
         text.anchor = TextAnchor.MiddleCenter;
         text.alignment = TextAlignment.Center;
-        text.characterSize = 0.012f;
+        text.characterSize = 0.016f;
+        text.fontStyle = FontStyle.Bold;
         text.color = Color.white;
         return text;
     }

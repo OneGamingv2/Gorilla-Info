@@ -15,6 +15,9 @@ namespace GorillaInfo
         private static readonly Color RowColor = new Color(0.16f, 0.16f, 0.18f);
         private static readonly Color ButtonColor = new Color(0.22f, 0.22f, 0.26f);
         private static readonly Color SideButtonColor = new Color(0.18f, 0.18f, 0.22f);
+        private const float TextBoostMultiplier = 1.25f;
+        private const float TextBoostMin = 0.004f;
+        private const float TextBoostMax = 0.040f;
 
         public void loadmenu()
         {
@@ -57,6 +60,7 @@ namespace GorillaInfo
             }
 
             ApplyVersionLabel(menuInstance.transform);
+            BoostMenuTextReadability(menuInstance.transform);
 
             GorillaInfoMain main = GorillaInfoMain.Instance;
             main.buttonClick = menuInstance.AddComponent<ButtonClick>();
@@ -170,6 +174,27 @@ namespace GorillaInfo
 
                 if (text.text.Contains("| FREE"))
                     text.text = text.text.Replace("| FREE", $"| {VersionLabel}");
+            }
+        }
+
+        private void BoostMenuTextReadability(Transform root)
+        {
+            if (root == null)
+                return;
+
+            TextMesh[] texts = root.GetComponentsInChildren<TextMesh>(true);
+            for (int i = 0; i < texts.Length; i++)
+            {
+                TextMesh text = texts[i];
+                if (text == null)
+                    continue;
+
+                float size = text.characterSize;
+                if (size >= TextBoostMin && size <= TextBoostMax)
+                    text.characterSize = size * TextBoostMultiplier;
+
+                if (text.fontStyle == FontStyle.Normal)
+                    text.fontStyle = FontStyle.Bold;
             }
         }
 
@@ -336,6 +361,8 @@ namespace GorillaInfo
             text.anchor = anchor;
             text.alignment = anchor == TextAnchor.MiddleLeft ? TextAlignment.Left : TextAlignment.Center;
             text.characterSize = size * 0.42f;
+            if (text.characterSize < 0.013f)
+                text.characterSize = 0.013f;
             text.color = Color.white;
         }
 

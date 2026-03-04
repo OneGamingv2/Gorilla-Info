@@ -7,6 +7,14 @@ using Photon.Realtime;
 
 public class GunLib
 {
+    private sealed class NametagVisual
+    {
+        public Transform Root;
+        public TextMesh MainText;
+        public TextMesh ShadowText;
+        public Renderer Backdrop;
+    }
+
     public LineRenderer gunRay;
     public GameObject gunSphere;
     public bool gunRayEnabled = true;
@@ -22,8 +30,8 @@ public class GunLib
     private const float GunRayWidth = 0.006f;
     private const float GunSphereScale = 0.15f;
     private const float NametagDistance = 18f;
-    private const float NametagHeight = 0.85f;
-    private const float NametagTextSize = 0.052f;
+    private const float NametagHeight = 0.95f;
+    private const float NametagTextSize = 0.078f;
     private const int MaxModsShownInTag = 2;
     private const float NametagPositionLerp = 18f;
     private const float NametagRotationLerp = 20f;
@@ -33,7 +41,7 @@ public class GunLib
     private const float AutoLockRefreshInterval = 0.12f;
     private const float NametagUpdateInterval = 0.04f;
 
-    private readonly Dictionary<VRRig, TextMesh> _nametags = new Dictionary<VRRig, TextMesh>(24);
+    private readonly Dictionary<VRRig, NametagVisual> _nametags = new Dictionary<VRRig, NametagVisual>(24);
     private readonly Dictionary<VRRig, string> _modsNametagCache = new Dictionary<VRRig, string>(24);
     private readonly Dictionary<VRRig, float> _modsCacheTimestamp = new Dictionary<VRRig, float>(24);
     private readonly List<VRRig> _rigCache = new List<VRRig>(24);
@@ -51,6 +59,10 @@ public class GunLib
         new Color(0.2f, 1f, 0.2f),
         new Color(1f, 1f, 0.2f)
     };
+
+    private static readonly Color NametagMainColor = new Color(1f, 1f, 1f, 1f);
+    private static readonly Color NametagShadowColor = new Color(0f, 0f, 0f, 0.95f);
+    private static readonly Color NametagBackdropColor = new Color(0.05f, 0.05f, 0.07f, 0.72f);
 
     public void gunray()
     {
@@ -237,8 +249,8 @@ public class GunLib
             for (int i = 0; i < toRemove.Count; i++)
             {
                 VRRig rig = toRemove[i];
-                if (_nametags.TryGetValue(rig, out TextMesh tag) && tag != null)
-                    Object.Destroy(tag.gameObject);
+                if (_nametags.TryGetValue(rig, out NametagVisual visual) && visual?.Root != null)
+                    Object.Destroy(visual.Root.gameObject);
                 _nametags.Remove(rig);
                 _modsNametagCache.Remove(rig);
                 _modsCacheTimestamp.Remove(rig);
@@ -250,20 +262,13 @@ public class GunLib
 
     private void UpdateNametagForRig(VRRig rig)
     {
-        if (!_nametags.TryGetValue(rig, out TextMesh textMesh) || textMesh == null)
+        if (!_nametags.TryGetValue(rig, out NametagVisual visual) || visual?.Root == null)
         {
-            GameObject tagObj = new GameObject("GI_Nametag");
-            textMesh = tagObj.AddComponent<TextMesh>();
-            textMesh.characterSize = NametagTextSize;
-            textMesh.alignment = TextAlignment.Center;
-            textMesh.anchor = TextAnchor.MiddleCenter;
-            textMesh.color = Color.white;
-            textMesh.fontStyle = FontStyle.Bold;
-            textMesh.lineSpacing = 0.85f;
-            _nametags[rig] = textMesh;
+            visual = CreateNametagVisual();
+            _nametags[rig] = visual;
         }
 
-        Transform tagTransform = textMesh.transform;
+        Transform tagTransform = visual.Root;
         Vector3 targetPosition = rig.transform.position + Vector3.up * NametagHeight;
         if (tagTransform.position == Vector3.zero)
             tagTransform.position = targetPosition;
@@ -281,17 +286,81 @@ public class GunLib
         string statsText = GetCachedStatsText(rig);
         string modsText = GetCachedModsNametagText(rig);
 
-        Renderer tagRenderer = textMesh.GetComponent<Renderer>();
         bool visible = IsTagVisibleToCamera(rig, tagTransform.position);
-        if (tagRenderer != null)
-            tagRenderer.enabled = visible;
+        if (visual.MainText != null)
+            visual.MainText.gameObject.SetActive(visible);
+        if (visual.ShadowText != null)
+            visual.ShadowText.gameObject.SetActive(visible);
+        if (visual.Backdrop != null)
+            visual.Backdrop.enabled = visible;
 
         if (!visible)
             return;
 
-        textMesh.text = string.IsNullOrEmpty(modsText)
+        string tagText = string.IsNullOrEmpty(modsText)
             ? $"<color=#FFFFFF>{playerName}</color>\n<color=#A8D8FF>{statsText}</color>"
             : $"<color=#FFFFFF>{playerName}</color>\n<color=#A8D8FF>{statsText}</color>\n<color=#8CFF9B>{modsText}</color>";
+
+        visual.MainText.text = tagText;
+        visual.ShadowText.text = tagText;
+
+        float lineCount = string.IsNullOrEmpty(modsText) ? 2f : 3f;
+        Vector3 bgScale = new Vector3(0.56f, 0.12f + (lineCount - 2f) * 0.06f, 1f);
+        if (visual.Backdrop != null)
+            visual.Backdrop.transform.localScale = bgScale;
+    }
+
+    private NametagVisual CreateNametagVisual()
+    {
+        GameObject rootObj = new GameObject("GI_Nametag");
+        Transform root = rootObj.transform;
+
+        GameObject bgObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        bgObj.name = "BG";
+        bgObj.transform.SetParent(root, false);
+        bgObj.transform.localPosition = Vector3.zero;
+        bgObj.transform.localRotation = Quaternion.identity;
+        bgObj.transform.localScale = new Vector3(0.56f, 0.12f, 1f);
+
+        Collider bgCollider = bgObj.GetComponent<Collider>();
+        if (bgCollider != null)
+            Object.Destroy(bgCollider);
+
+        Renderer bgRenderer = bgObj.GetComponent<Renderer>();
+        if (bgRenderer != null)
+        {
+            Material bgMaterial = new Material(Shader.Find("Sprites/Default"));
+            bgMaterial.color = NametagBackdropColor;
+            bgRenderer.material = bgMaterial;
+        }
+
+        TextMesh shadow = CreateTagText(root, "Shadow", NametagShadowColor, new Vector3(0.0022f, -0.0018f, -0.001f));
+        TextMesh main = CreateTagText(root, "Main", NametagMainColor, new Vector3(0f, 0f, -0.002f));
+
+        return new NametagVisual
+        {
+            Root = root,
+            MainText = main,
+            ShadowText = shadow,
+            Backdrop = bgRenderer
+        };
+    }
+
+    private TextMesh CreateTagText(Transform parent, string name, Color color, Vector3 offset)
+    {
+        GameObject textObj = new GameObject(name);
+        textObj.transform.SetParent(parent, false);
+        textObj.transform.localPosition = offset;
+        textObj.transform.localRotation = Quaternion.identity;
+
+        TextMesh textMesh = textObj.AddComponent<TextMesh>();
+        textMesh.characterSize = NametagTextSize;
+        textMesh.alignment = TextAlignment.Center;
+        textMesh.anchor = TextAnchor.MiddleCenter;
+        textMesh.color = color;
+        textMesh.fontStyle = FontStyle.Bold;
+        textMesh.lineSpacing = 0.88f;
+        return textMesh;
     }
 
     private string GetCachedStatsText(VRRig rig)
@@ -357,7 +426,7 @@ public class GunLib
         _nextRigCacheRefreshTime = Time.time + RigCacheRefreshInterval;
         _rigCache.Clear();
 
-        VRRig[] rigs = Object.FindObjectsOfType<VRRig>(false);
+        VRRig[] rigs = Object.FindObjectsByType<VRRig>(FindObjectsSortMode.None);
         for (int i = 0; i < rigs.Length; i++)
         {
             if (rigs[i] != null)
@@ -434,8 +503,8 @@ public class GunLib
     {
         foreach (var kv in _nametags)
         {
-            if (kv.Value != null)
-                Object.Destroy(kv.Value.gameObject);
+            if (kv.Value?.Root != null)
+                Object.Destroy(kv.Value.Root.gameObject);
         }
         _nametags.Clear();
         _modsNametagCache.Clear();

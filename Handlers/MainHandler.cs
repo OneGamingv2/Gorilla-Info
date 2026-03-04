@@ -21,6 +21,9 @@ public class MainHandler
     private const string NoMods = "No mods detected";
     private const string FpsSuffix = " FPS";
     private const string WorldScalePrefix = "World Scale: ";
+    private static readonly WaitForSeconds ScanWarmupWait = new WaitForSeconds(0.3f);
+    private static readonly WaitForSeconds ScanStartWait = new WaitForSeconds(0.5f);
+    private static readonly WaitForSeconds ScanPerPlayerWait = new WaitForSeconds(0.2f);
 
     public void UpdateMainPage()
     {
@@ -168,9 +171,9 @@ public class MainHandler
         _scanRunning = true;
         try
         {
-            yield return new WaitForSeconds(0.3f);
+            yield return ScanWarmupWait;
 
-            VRRig[] allRigs = Object.FindObjectsOfType<VRRig>();
+            VRRig[] allRigs = Object.FindObjectsByType<VRRig>(FindObjectsSortMode.None);
 
             if (allRigs == null || allRigs.Length == 0)
             {
@@ -179,7 +182,7 @@ public class MainHandler
             }
 
             GorillaInfoMain.Instance.misc.Notify($"<color=#00FFFF>Scanning {allRigs.Length} players...</color>");
-            yield return new WaitForSeconds(0.5f);
+            yield return ScanStartWait;
 
             foreach (var rig in allRigs)
             {
@@ -196,14 +199,14 @@ public class MainHandler
                         if (!string.IsNullOrEmpty(mod))
                         {
                             GorillaInfoMain.Instance.misc.Notify($"<color=#FFD700>{playerName}</color> has <color=#00FF00>{mod}</color>");
-                            yield return new WaitForSeconds(0.2f);
+                            yield return ScanPerPlayerWait;
                         }
                     }
                 }
                 else
                 {
                     GorillaInfoMain.Instance.misc.Notify($"<color=#FFD700>{playerName}</color> - <color=#808080>No mods</color>");
-                    yield return new WaitForSeconds(0.2f);
+                    yield return ScanPerPlayerWait;
                 }
             }
 
