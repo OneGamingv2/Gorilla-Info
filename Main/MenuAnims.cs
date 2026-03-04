@@ -3,7 +3,7 @@ using GorillaInfo;
 
 public class MenuAnimations
 {
-    private static readonly Vector3 OpenScale = Vector3.one * 0.18f;
+    private static readonly Vector3 OpenScale = Vector3.one * 0.145f;
     private const float ScaleSmoothTime = 0.08f;
     private const float OpenSnapThresholdSqr = 0.000001f;
     private const float CloseSnapThresholdSqr = 0.00001f;

@@ -10,7 +10,7 @@ namespace GorillaInfo
         private const float PositionX = 0.315f;
         private const float PositionY = 0.055f;
         private const float PositionZ = -0.035f;
-        private static readonly Vector3 MoreInfoBottomPosition = new Vector3(0f, -0.28f, 0f);
+        private static readonly Vector3 MoreInfoBottomPosition = new Vector3(0f, -0.36f, 0f);
         private const string VersionLabel = "v1.0.2 FREE";
         private static readonly Color PanelColor = new Color(0.10f, 0.10f, 0.12f);
         private static readonly Color RowColor = new Color(0.16f, 0.16f, 0.18f);
