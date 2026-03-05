@@ -248,21 +248,22 @@ namespace Checker
 
         public static string[] GetCustomProperties(this VRRig rig)
         {
-            if (rig == null || rig.OwningNetPlayer == null)
+            var playerRef = rig?.Creator?.GetPlayerRef();
+            if (playerRef == null)
                 return Array.Empty<string>();
 
             try
             {
                 if (!_customPropertiesFieldResolved)
                 {
-                    _customPropertiesField = AccessTools.Field(rig.OwningNetPlayer.GetType(), "customProperties");
+                    _customPropertiesField = AccessTools.Field(playerRef.GetType(), "customProperties");
                     _customPropertiesFieldResolved = true;
                 }
 
                 if (_customPropertiesField == null)
                     return Array.Empty<string>();
 
-                var customProperties = _customPropertiesField.GetValue(rig.OwningNetPlayer)
+                var customProperties = _customPropertiesField.GetValue(playerRef)
                     as ExitGames.Client.Photon.Hashtable;
 
                 if (customProperties == null || customProperties.Count == 0)

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using Checker;
 using UnityEngine;
 
-public class Utilities
+public class CheckerUtilities
 {
     private static readonly List<string> _detectedModsBuffer = new List<string>(32);
     private static readonly HashSet<string> _detectedModsSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

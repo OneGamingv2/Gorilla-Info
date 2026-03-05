@@ -13,7 +13,7 @@ namespace GorillaInfo
         public ButtonClick buttonClick;
         public Button button;
         public GunLib gunLib;
-        public Utilities utilities;
+        public CheckerUtilities utilities;
         public MainHandler updMain;
         public Misc misc;
         public LobbyHandler lobbyHandler;
@@ -28,7 +28,9 @@ namespace GorillaInfo
 
         private bool _buttonWasPressed;
         private float _nextMainPageUpdate;
-        private const float MainPageInterval = 0.2f;
+        private float _nextLobbyUpdate;
+        private const float MainPageInterval = 0.25f;
+        private const float LobbyInterval = 0.45f;
         private bool _gunDestroyed;
 
         private void Awake()
@@ -73,13 +75,18 @@ namespace GorillaInfo
             gunLib.rearmgun();
             gunLib.gunray();
             musicHandler?.UpdateMusicData();
+            button.checkbuttons();
 
             if (Time.time >= _nextMainPageUpdate)
             {
                 updMain.UpdateMainPage();
-                lobbyHandler?.UpdateLobby();
-                button.checkbuttons();
                 _nextMainPageUpdate = Time.time + MainPageInterval;
+            }
+
+            if (Time.time >= _nextLobbyUpdate)
+            {
+                lobbyHandler?.UpdateLobby();
+                _nextLobbyUpdate = Time.time + LobbyInterval;
             }
         }
 
@@ -89,7 +96,7 @@ namespace GorillaInfo
             menuAnimations = new MenuAnimations();
             button = new Button();
             gunLib = new GunLib();
-            utilities = new Utilities();
+            utilities = new CheckerUtilities();
             updMain = new MainHandler();
             misc = new Misc();
             lobbyHandler = new LobbyHandler();

@@ -170,10 +170,7 @@ public class LobbyHandler
         if (misc == null)
             return;
 
-        if (misc.txtSelectedPlayer != null)
-        {
-            misc.txtSelectedPlayer.text = $"Selected Player: {GetRigName(selectedRig)}";
-        }
+        GorillaInfoMain.Instance.updMain?.UpdateMainPage();
 
         misc.EnableMain();
     }

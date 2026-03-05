@@ -160,7 +160,7 @@ public class MoreInfoHandler
 
         if (_nameText != null)
         {
-            string playerName = target.OwningNetPlayer?.NickName ?? "Unknown";
+            string playerName = target.Creator?.GetPlayerRef()?.NickName ?? "Unknown";
             _nameText.text = playerName;
         }
 

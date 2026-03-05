@@ -23,6 +23,7 @@ public class GunLib
     public bool nametagsEnabled;
     public bool passThroughEnabled;
     public VRRig lockedTarget;
+    public bool lockPointerEnabled = true;
 
     private bool _lastBPressed;
     private int _currentGunStyleIndex;
@@ -38,8 +39,10 @@ public class GunLib
     private const float RigCacheRefreshInterval = 0.2f;
     private const float ModsRefreshInterval = 1.2f;
     private const float StatsRefreshInterval = 0.35f;
-    private const float AutoLockRefreshInterval = 0.12f;
     private const float NametagUpdateInterval = 0.04f;
+    private const float LockVisualUpdateInterval = 1f / 30f;
+    private const float LockPointerWidth = 0.0045f;
+    private const float LockSphereScale = 0.52f;
 
     private readonly Dictionary<VRRig, NametagVisual> _nametags = new Dictionary<VRRig, NametagVisual>(24);
     private readonly Dictionary<VRRig, string> _modsNametagCache = new Dictionary<VRRig, string>(24);
@@ -49,8 +52,10 @@ public class GunLib
     private readonly Dictionary<VRRig, string> _tagStatsCache = new Dictionary<VRRig, string>(24);
     private readonly Dictionary<VRRig, float> _tagStatsTimestamp = new Dictionary<VRRig, float>(24);
     private float _nextRigCacheRefreshTime;
-    private float _nextAutoLockRefreshTime;
     private float _nextNametagUpdateTime;
+    private float _nextLockVisualUpdateTime;
+    private LineRenderer _lockPointer;
+    private GameObject _lockSphere;
 
     private static readonly Color[] GunStyleColors = new Color[]
     {
@@ -69,38 +74,33 @@ public class GunLib
         if (!gunRayEnabled || GorillaInfoMain.Instance.menuState != GorillaInfoMain.MenuState.Open)
         {
             destroy();
+            HideLockVisuals();
             return;
         }
 
         bool gripHeld = ControllerInputPoller.instance.rightControllerGripFloat > 0.8f;
-        if (!gripHeld && !autoLockEnabled)
+
+        Transform hand = GorillaTagger.Instance.rightHandTransform;
+        if (hand == null)
+            return;
+
+        Vector3 start = hand.position;
+        if (!gripHeld)
         {
             destroy();
+            UpdateLockVisuals(start);
             return;
         }
 
-        if (gunRay == null && gripHeld) makeGun();
+        if (gunRay == null)
+            makeGun();
 
-        Transform hand = GorillaTagger.Instance.rightHandTransform;
-        Vector3 start = hand.position;
         Vector3 dir = hand.forward;
 
         RaycastHit hit;
         LayerMask mask = passThroughEnabled ? LayerMask.GetMask("Default") : -1;
         bool hitSomething = Physics.Raycast(start, dir, out hit, MaxDistance, mask);
         Vector3 end = hitSomething ? hit.point : start + dir * MaxDistance;
-
-        if (autoLockEnabled && Time.time >= _nextAutoLockRefreshTime)
-        {
-            _nextAutoLockRefreshTime = Time.time + AutoLockRefreshInterval;
-
-            VRRig autoTarget = FindClosestVRRigInDirection(start, dir);
-            if (IsRigValid(autoTarget) && autoTarget != lockedTarget)
-            {
-                lockedTarget = autoTarget;
-                GorillaInfoMain.Instance.updMain.UpdateMainPage();
-            }
-        }
 
         if (autoLockEnabled && IsRigValid(lockedTarget))
         {
@@ -116,19 +116,27 @@ public class GunLib
             gunSphere.transform.position = end;
         }
 
-        if (!hitSomething && !passThroughEnabled && !autoLockEnabled) return;
+        if (!hitSomething && !passThroughEnabled)
+        {
+            UpdateLockVisuals(start);
+            return;
+        }
 
         VRRig hitRig = passThroughEnabled ? FindClosestVRRigInDirection(start, dir) : (hitSomething ? hit.collider.GetComponentInParent<VRRig>() : null);
-        if (hitRig == null && autoLockEnabled)
-            hitRig = FindClosestVRRigInDirection(start, dir);
 
-        if (hitRig == null || hitRig == GorillaTagger.Instance.offlineVRRig) return;
+        if (hitRig == null || hitRig == GorillaTagger.Instance.offlineVRRig)
+        {
+            UpdateLockVisuals(start);
+            return;
+        }
 
-        if ((SimpleInputs.RightTrigger || autoLockEnabled) && lockedTarget != hitRig)
+        if (SimpleInputs.RightTrigger && lockedTarget != hitRig)
         {
             lockedTarget = hitRig;
             GorillaInfoMain.Instance.updMain.UpdateMainPage();
         }
+
+        UpdateLockVisuals(start);
     }
 
     private VRRig FindClosestVRRigInDirection(Vector3 start, Vector3 dir)
@@ -187,10 +195,16 @@ public class GunLib
 
         if (bDown)
         {
-            lockedTarget = null;
-            gunSuppressedAfterInfoUpdate = false;
+            ClearSelection();
             GorillaInfoMain.Instance.updMain.UpdateMainPage();
         }
+    }
+
+    public void ClearSelection()
+    {
+        lockedTarget = null;
+        gunSuppressedAfterInfoUpdate = false;
+        HideLockVisuals();
     }
 
     public void SetGunStyle(int styleIndex)
@@ -437,6 +451,85 @@ public class GunLib
     private bool IsRigValid(VRRig rig)
     {
         return rig != null && rig != GorillaTagger.Instance.offlineVRRig;
+    }
+
+    private void EnsureLockVisuals()
+    {
+        if (_lockPointer == null)
+        {
+            _lockPointer = new GameObject("LockPointer").AddComponent<LineRenderer>();
+            _lockPointer.startWidth = LockPointerWidth;
+            _lockPointer.endWidth = LockPointerWidth;
+            _lockPointer.material = new Material(Shader.Find("Sprites/Default"));
+            _lockPointer.material.color = new Color(0.2f, 1f, 1f, 1f);
+            _lockPointer.positionCount = 2;
+            _lockPointer.enabled = false;
+        }
+
+        if (_lockSphere == null)
+        {
+            _lockSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _lockSphere.name = "SelectedTargetSphere";
+            _lockSphere.transform.localScale = Vector3.one * LockSphereScale;
+            Collider col = _lockSphere.GetComponent<Collider>();
+            if (col != null)
+                Object.Destroy(col);
+
+            Renderer renderer = _lockSphere.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.material = new Material(Shader.Find("Sprites/Default"));
+                renderer.material.color = new Color(0.2f, 1f, 1f, 0.25f);
+            }
+            _lockSphere.layer = LayerMask.NameToLayer("Ignore Raycast");
+            _lockSphere.SetActive(false);
+        }
+    }
+
+    private void UpdateLockVisuals(Vector3 start)
+    {
+        if (Time.time < _nextLockVisualUpdateTime)
+            return;
+
+        _nextLockVisualUpdateTime = Time.time + LockVisualUpdateInterval;
+
+        if (!IsRigValid(lockedTarget))
+        {
+            HideLockVisuals();
+            return;
+        }
+
+        EnsureLockVisuals();
+
+        Vector3 targetPosition = lockedTarget.transform.position + Vector3.up * 0.35f;
+
+        if (_lockSphere != null)
+        {
+            _lockSphere.SetActive(true);
+            _lockSphere.transform.position = targetPosition;
+            float pulse = 1f + Mathf.Sin(Time.time * 5.5f) * 0.07f;
+            _lockSphere.transform.localScale = Vector3.one * LockSphereScale * pulse;
+        }
+
+        if (_lockPointer != null)
+        {
+            bool showPointer = autoLockEnabled && lockPointerEnabled;
+            _lockPointer.enabled = showPointer;
+            if (showPointer)
+            {
+                _lockPointer.SetPosition(0, start);
+                _lockPointer.SetPosition(1, targetPosition);
+            }
+        }
+    }
+
+    private void HideLockVisuals()
+    {
+        if (_lockPointer != null)
+            _lockPointer.enabled = false;
+
+        if (_lockSphere != null)
+            _lockSphere.SetActive(false);
     }
 
     private string GetCachedModsNametagText(VRRig rig)

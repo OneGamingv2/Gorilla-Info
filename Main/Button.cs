@@ -47,6 +47,11 @@ public class Button
             if (TryPressButton(FindDeepChild(actionsPanel.transform, "LobbyHop"), GorillaInfoMain.Instance.updMain.LobbyHop, spherePos)) return;
             if (TryPressButton(FindDeepChild(actionsPanel.transform, "JoinPrivate"), GorillaInfoMain.Instance.updMain.JoinPrivate, spherePos)) return;
             if (TryPressButton(FindDeepChild(actionsPanel.transform, "Disconnect"), GorillaInfoMain.Instance.updMain.Disconnect, spherePos)) return;
+            if (TryPressButton(FindAnyDeepChild(actionsPanel.transform, "ClearSelection", "Clear Selection", "ClearTarget"), () =>
+            {
+                GorillaInfoMain.Instance.gunLib?.ClearSelection();
+                GorillaInfoMain.Instance.updMain?.UpdateMainPage();
+            }, spherePos)) return;
             if (TryPressButton(FindAnyDeepChild(actionsPanel.transform, "MoreInfoButton", "MoreInfo", "More Info"), () => GorillaInfoMain.Instance.moreInfoHandler?.ToggleMoreInfo(), spherePos)) return;
         }
 

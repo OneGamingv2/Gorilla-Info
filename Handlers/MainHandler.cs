@@ -13,7 +13,6 @@ public class MainHandler
     private string _cachedFps;
     private string _cachedColor;
     private bool _creationDateRequested;
-    private float _fpsTimer;
     private bool _scanRunning;
 
     private const string NoPlayer = "No player selected";
@@ -45,10 +44,11 @@ public class MainHandler
 
                 ClearCache();
             }
+            UpdateSelectedPlayerStatus(misc, info, "None");
             return;
         }
 
-        var netPlayer = rig.OwningNetPlayer;
+        var netPlayer = rig.Creator?.GetPlayerRef();
         if (netPlayer == null) return;
 
         bool targetChanged = rig != _lastRig;
@@ -58,9 +58,6 @@ public class MainHandler
         {
             _cachedName = netPlayer.NickName;
             misc.txtName.text = _cachedName;
-
-            if (misc.txtSelectedPlayer != null)
-                misc.txtSelectedPlayer.text = $"Selected Player: {_cachedName}";
         }
         if (targetChanged)
         {
@@ -116,6 +113,18 @@ public class MainHandler
             List<string> mods = info.utilities.DetectAllMods(rig);
             misc.SetMods(mods);
         }
+
+        UpdateSelectedPlayerStatus(misc, info, _cachedName);
+    }
+
+    private void UpdateSelectedPlayerStatus(Misc misc, GorillaInfoMain info, string selectedName)
+    {
+        if (misc?.txtSelectedPlayer == null || info?.gunLib == null)
+            return;
+
+        string lockStatus = info.gunLib.autoLockEnabled ? "ON" : "OFF";
+        string safeName = string.IsNullOrEmpty(selectedName) ? "None" : selectedName;
+        misc.txtSelectedPlayer.text = $"Selected: {safeName} | LockOn: {lockStatus}";
     }
 
     private void ClearCache()
@@ -187,10 +196,11 @@ public class MainHandler
 
             foreach (var rig in allRigs)
             {
-                if (rig == null || rig.OwningNetPlayer == null)
+                var playerRef = rig?.Creator?.GetPlayerRef();
+                if (rig == null || playerRef == null)
                     continue;
 
-                string playerName = rig.OwningNetPlayer.NickName;
+                string playerName = playerRef.NickName;
                 List<string> mods = GorillaInfoMain.Instance.utilities.DetectAllMods(rig);
 
                 if (mods != null && mods.Count > 0)

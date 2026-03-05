@@ -232,12 +232,13 @@ namespace GorillaInfo
         {
             Transform tab = CreatePanel(root, "ActionsTab", new Vector3(0f, 0f, 0f), new Vector3(0.52f, 0.38f, 0.012f), PanelColor);
             CreateText(tab, "ActionsHeader", "ACTIONS", new Vector3(0f, 0.17f, -0.01f), 0.022f, TextAnchor.MiddleCenter);
-            CreateText(tab, "SelectedPlayer", "Selected Player: None | FREE", new Vector3(-0.22f, 0.15f, -0.01f), 0.027f, TextAnchor.MiddleLeft);
+            CreateText(tab, "SelectedPlayer", "Selected: None | LockOn: OFF", new Vector3(-0.22f, 0.15f, -0.01f), 0.027f, TextAnchor.MiddleLeft);
             CreateButton(tab, "Scan Players", "Scan Players", new Vector3(0f, 0.08f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
             CreateButton(tab, "LobbyHop", "Lobby Hop", new Vector3(0f, 0.02f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
             CreateButton(tab, "JoinPrivate", "Join Private", new Vector3(0f, -0.04f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
             CreateButton(tab, "Disconnect", "Disconnect", new Vector3(0f, -0.10f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
-            CreateButton(tab, "MoreInfoButton", "More Info", new Vector3(0f, -0.16f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
+            CreateButton(tab, "ClearSelection", "Clear Selection", new Vector3(0f, -0.16f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
+            CreateButton(tab, "MoreInfoButton", "More Info", new Vector3(0f, -0.22f, 0f), new Vector3(0.34f, 0.048f, 0.012f), ButtonColor);
         }
 
         private void CreateLobbyTab(Transform root)

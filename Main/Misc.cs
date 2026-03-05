@@ -39,7 +39,7 @@ namespace GorillaInfo
 
             txtSelectedPlayer = actions.Find("SelectedPlayer")?.GetComponent<TextMesh>();
             if (txtSelectedPlayer != null)
-                txtSelectedPlayer.text = "Selected Player: None";
+                txtSelectedPlayer.text = "Selected: None | LockOn: OFF";
         }
 
         public void InitLobbyTexts()
