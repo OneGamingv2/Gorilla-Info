@@ -6,13 +6,14 @@ public class Button
 {
     private static readonly Dictionary<Transform, bool> _buttonTouchStates = new(16);
     private float _nextAllowedClickTime;
-    private float _interactionRadius = 0.008f;
+    private float _interactionRadius = 0.005f;
+    private bool _touchLatchActive;
+    private bool _anyTouchThisFrame;
+    private Collider _latchedCollider;
     private const float ClickCooldown = 0.2f;
 
     public void checkbuttons()
     {
-        if (Time.time < _nextAllowedClickTime) return;
-
         var menu = GorillaInfoMain.Instance?.menuLoader?.menuInstance;
         var sphere = GorillaInfoMain.Instance?.buttonClick?.fingerSphere;
 
@@ -22,13 +23,15 @@ public class Button
         Transform sections = FindDeepChild(menu.transform, "Sections");
         if (sections == null) return;
 
+        _anyTouchThisFrame = false;
+
         Vector3 spherePos = sphere.transform.position;
         SphereCollider sphereCollider = sphere.GetComponent<SphereCollider>();
         if (sphereCollider != null)
         {
             Vector3 lossy = sphere.transform.lossyScale;
             float scaleMax = Mathf.Max(lossy.x, Mathf.Max(lossy.y, lossy.z));
-            _interactionRadius = Mathf.Max(0.004f, sphereCollider.radius * scaleMax);
+            _interactionRadius = Mathf.Clamp(sphereCollider.radius * scaleMax, 0.0035f, 0.006f);
         }
 
         if (TryPressButton(FindAnyDeepChild(sections, "HomeButton", "Home"), GorillaInfoMain.Instance.misc.EnableMain, spherePos)) return;
@@ -101,6 +104,12 @@ public class Button
                 }
             }
         }
+
+        if (!_anyTouchThisFrame)
+        {
+            _touchLatchActive = false;
+            _latchedCollider = null;
+        }
     }
 
     private Transform FindDeepChild(Transform parent, string name)
@@ -131,25 +140,49 @@ public class Button
         {
             Transform found = FindDeepChild(parent, names[i]);
             if (found != null)
-                return found;
+                return ResolveButtonTransform(found);
         }
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            string normalizedTarget = NormalizeName(names[i]);
+            Transform found = FindByNormalizedName(parent, normalizedTarget);
+            if (found != null)
+                return ResolveButtonTransform(found);
+        }
+
+        return null;
+    }
+
+    private Transform FindByNormalizedName(Transform parent, string normalizedName)
+    {
+        if (parent == null || string.IsNullOrEmpty(normalizedName))
+            return null;
+
+        if (NormalizeName(parent.name) == normalizedName)
+            return parent;
 
         for (int i = 0; i < parent.childCount; i++)
         {
-            Transform child = parent.GetChild(i);
-            string normalizedChildName = NormalizeName(child.name);
-
-            for (int n = 0; n < names.Length; n++)
-            {
-                string normalizedTarget = NormalizeName(names[n]);
-                if (normalizedChildName.Contains(normalizedTarget) || normalizedTarget.Contains(normalizedChildName))
-                    return child;
-            }
-
-            Transform recursive = FindAnyDeepChild(child, names);
-            if (recursive != null)
-                return recursive;
+            Transform found = FindByNormalizedName(parent.GetChild(i), normalizedName);
+            if (found != null)
+                return found;
         }
+
+        return null;
+    }
+
+    private Transform ResolveButtonTransform(Transform candidate)
+    {
+        if (candidate == null)
+            return null;
+
+        if (candidate.GetComponent<Collider>() != null)
+            return candidate;
+
+        Transform parent = candidate.parent;
+        if (parent != null && parent.GetComponent<Collider>() != null)
+            return parent;
 
         return null;
     }
@@ -164,27 +197,38 @@ public class Button
 
     private bool TryPressButton(Transform btn, System.Action onPress, Vector3 spherePos)
     {
-        if (btn == null) return false;
+        Transform target = ResolveButtonTransform(btn);
+        if (target == null) return false;
 
-        Collider col = btn.GetComponent<Collider>() ?? btn.GetComponentInChildren<Collider>();
+        Collider col = target.GetComponent<Collider>();
         if (col == null) return false;
 
-        if (!_buttonTouchStates.TryGetValue(btn, out bool wasTouching))
+        if (!_buttonTouchStates.TryGetValue(target, out bool wasTouching))
             wasTouching = false;
 
         Vector3 closest = col.ClosestPoint(spherePos);
         bool touching = (spherePos - closest).sqrMagnitude <= (_interactionRadius * _interactionRadius);
+        if (touching)
+            _anyTouchThisFrame = true;
 
-        if (touching && !wasTouching)
+        if (_touchLatchActive && _latchedCollider != null && col != _latchedCollider)
+        {
+            _buttonTouchStates[target] = touching;
+            return false;
+        }
+
+        if (touching && !wasTouching && !_touchLatchActive && Time.time >= _nextAllowedClickTime)
         {
             AudioHelper.PlaySound("CreamyClick.wav");
             onPress?.Invoke();
             _nextAllowedClickTime = Time.time + ClickCooldown;
-            _buttonTouchStates[btn] = true;
+            _touchLatchActive = true;
+            _latchedCollider = col;
+            _buttonTouchStates[target] = true;
             return true;
         }
 
-        _buttonTouchStates[btn] = touching;
+        _buttonTouchStates[target] = touching;
         return false;
     }
 }
