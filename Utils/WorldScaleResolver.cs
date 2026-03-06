@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using UnityEngine;
+using Steamworks;
 
 public static class WorldScaleResolver
 {
@@ -19,11 +20,34 @@ public static class WorldScaleResolver
     };
 
     private static readonly Dictionary<Type, List<MemberInfo>> MemberCache = new Dictionary<Type, List<MemberInfo>>();
+    private static readonly Dictionary<string, float> SmoothedScaleByUser = new Dictionary<string, float>(64);
+    private static readonly Dictionary<string, float> LastUpdateTimeByUser = new Dictionary<string, float>(64);
+
+    private const float MinScale = 0.45f;
+    private const float MaxScale = 2.4f;
+    private const float MaxSampleJump = 0.45f;
+    private const float DefaultScale = 1f;
+    private const float HandToHeadReference = 0.58f;
+    private const float ShoulderWidthReference = 0.40f;
 
     public static float GetWorldScale(VRRig rig)
     {
         if (rig == null)
-            return 1f;
+            return DefaultScale;
+
+        string userKey = BuildPerUserKey(rig);
+        float rawScale = ResolveRawWorldScale(rig);
+
+        if (string.IsNullOrEmpty(userKey))
+            return rawScale;
+
+        return SmoothPerUserScale(userKey, rawScale);
+    }
+
+    private static float ResolveRawWorldScale(VRRig rig)
+    {
+        if (rig == null)
+            return DefaultScale;
 
         if (TryGetScaleFromObject(rig, out float rigScale))
             return rigScale;
@@ -34,7 +58,180 @@ public static class WorldScaleResolver
         if (TryGetScaleFromCustomProperties(rig?.Creator?.GetPlayerRef(), out float customPropScale))
             return customPropScale;
 
-        return GetTransformFallback(rig);
+        float fallbackScale = GetMathFallback(rig);
+        if (!IsValidScale(fallbackScale))
+            return DefaultScale;
+
+        return fallbackScale;
+    }
+
+    private static float SmoothPerUserScale(string key, float raw)
+    {
+        raw = Mathf.Clamp(raw, MinScale, MaxScale);
+        float now = Time.time;
+
+        if (!SmoothedScaleByUser.TryGetValue(key, out float current))
+        {
+            SmoothedScaleByUser[key] = raw;
+            LastUpdateTimeByUser[key] = now;
+            return raw;
+        }
+
+        float dt = now - (LastUpdateTimeByUser.TryGetValue(key, out float lastTs) ? lastTs : now);
+        LastUpdateTimeByUser[key] = now;
+
+        if (Mathf.Abs(raw - current) > MaxSampleJump)
+            raw = Mathf.Lerp(current, raw, 0.2f);
+
+        float alpha = Mathf.Clamp01(dt * 6f);
+        float smoothed = Mathf.Lerp(current, raw, alpha);
+        SmoothedScaleByUser[key] = smoothed;
+        return smoothed;
+    }
+
+    private static string BuildPerUserKey(VRRig rig)
+    {
+        Player player = rig?.Creator?.GetPlayerRef();
+        if (player == null)
+            return null;
+
+        string userId = player.UserId;
+        if (TryBuildSteamUserKey(userId, out string steamKey))
+            return steamKey;
+
+        if (!string.IsNullOrEmpty(userId))
+            return "uid:" + userId;
+
+        int actor = player.ActorNumber;
+        if (actor > 0)
+            return "actor:" + actor.ToString(CultureInfo.InvariantCulture);
+
+        return null;
+    }
+
+    private static bool TryBuildSteamUserKey(string userId, out string key)
+    {
+        key = null;
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        int idx = userId.IndexOf("steam_", StringComparison.OrdinalIgnoreCase);
+        string candidate = idx >= 0 ? userId[(idx + 6)..] : userId;
+
+        if (!ulong.TryParse(candidate, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong steam64) || steam64 == 0)
+            return false;
+
+        try
+        {
+            CSteamID steamId = new CSteamID(steam64);
+            if (!steamId.IsValid())
+                return false;
+
+            if (SteamManager.Initialized)
+            {
+                try { _ = SteamFriends.GetFriendPersonaName(steamId); } catch { }
+            }
+
+            key = "steam:" + steam64.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static float GetMathFallback(VRRig rig)
+    {
+        float transformScale = GetTransformFallback(rig);
+        float bodyScale = EstimateBodyScaleFromRigMath(rig);
+
+        bool hasTransform = IsValidScale(transformScale);
+        bool hasBody = IsValidScale(bodyScale);
+
+        if (hasTransform && hasBody)
+            return Mathf.Clamp((transformScale * 0.6f) + (bodyScale * 0.4f), MinScale, MaxScale);
+
+        if (hasTransform)
+            return transformScale;
+
+        if (hasBody)
+            return bodyScale;
+
+        return DefaultScale;
+    }
+
+    private static float EstimateBodyScaleFromRigMath(VRRig rig)
+    {
+        if (rig == null)
+            return DefaultScale;
+
+        Transform root = rig.transform;
+        Transform head = FindByNameHint(root, "head", "Head", "headMesh");
+        Transform leftHand = FindByNameHint(root, "leftHand", "LHand", "LeftHand");
+        Transform rightHand = FindByNameHint(root, "rightHand", "RHand", "RightHand");
+        Transform leftShoulder = FindByNameHint(root, "leftShoulder", "LShoulder", "shoulder_l");
+        Transform rightShoulder = FindByNameHint(root, "rightShoulder", "RShoulder", "shoulder_r");
+
+        float sum = 0f;
+        int count = 0;
+
+        if (head != null && leftHand != null && rightHand != null)
+        {
+            float handToHead = (Vector3.Distance(head.position, leftHand.position) + Vector3.Distance(head.position, rightHand.position)) * 0.5f;
+            if (handToHead > 0.01f)
+            {
+                sum += handToHead / HandToHeadReference;
+                count++;
+            }
+        }
+
+        if (leftShoulder != null && rightShoulder != null)
+        {
+            float shoulderWidth = Vector3.Distance(leftShoulder.position, rightShoulder.position);
+            if (shoulderWidth > 0.01f)
+            {
+                sum += shoulderWidth / ShoulderWidthReference;
+                count++;
+            }
+        }
+
+        if (count == 0)
+            return DefaultScale;
+
+        float value = sum / count;
+        return Mathf.Clamp(value, MinScale, MaxScale);
+    }
+
+    private static Transform FindByNameHint(Transform root, params string[] hints)
+    {
+        if (root == null || hints == null)
+            return null;
+
+        Queue<Transform> queue = new Queue<Transform>();
+        queue.Enqueue(root);
+
+        while (queue.Count > 0)
+        {
+            Transform current = queue.Dequeue();
+            string name = current.name;
+
+            for (int i = 0; i < hints.Length; i++)
+            {
+                if (name.IndexOf(hints[i], StringComparison.OrdinalIgnoreCase) >= 0)
+                    return current;
+            }
+
+            for (int c = 0; c < current.childCount; c++)
+                queue.Enqueue(current.GetChild(c));
+        }
+
+        return null;
+    }
+
+    private static bool IsValidScale(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value) && value >= MinScale && value <= MaxScale;
     }
 
     private static bool TryGetScaleFromCreator(VRRig rig, out float scale)
@@ -235,13 +432,13 @@ public static class WorldScaleResolver
     private static float GetTransformFallback(VRRig rig)
     {
         if (rig == null)
-            return 1f;
+            return DefaultScale;
 
         Vector3 scale = rig.transform.lossyScale;
         float averaged = (Mathf.Abs(scale.x) + Mathf.Abs(scale.y) + Mathf.Abs(scale.z)) / 3f;
 
-        if (averaged < 0.2f || averaged > 3f)
-            return 1f;
+        if (averaged < MinScale || averaged > MaxScale)
+            return DefaultScale;
 
         return averaged;
     }

@@ -13,8 +13,9 @@ public class CheckerUtilities
     private const float SuspiciousSpeedThreshold = 7.5f;
     private const float SpeedBoostThreshold = 11f;
     private const float FlyVerticalVelocityThreshold = 6f;
-    private const float SteamLongArmsThreshold = 1.12f;
-    private const float SteamExtremeLongArmsThreshold = 1.35f;
+    private const float SteamLargeScaleThreshold = 1.18f;
+    private const float SteamExtremeScaleThreshold = 1.35f;
+    private const float SteamSmallScaleThreshold = 0.85f;
     private static readonly string[] _signatureKeywords =
     {
         "NOCLIP MOD", "SPEED", "GHOST", "INVIS", "TAGALL", "AUTOTAG", "RIGGUN",
@@ -118,13 +119,15 @@ public class CheckerUtilities
         if (fps > 0 && fps <= LowFpsThreshold)
             TryAddMod("LOW FPS");
 
-        float armScale = ArmLengthResolver.GetArmLengthScale(rig);
+        float worldScale = WorldScaleResolver.GetWorldScale(rig);
         if (platform == Platform.Steam)
         {
-            if (armScale >= SteamExtremeLongArmsThreshold)
-                TryAddMod("EXTREME LONG ARMS");
-            else if (armScale >= SteamLongArmsThreshold)
-                TryAddMod("LONG ARMS");
+            if (worldScale >= SteamExtremeScaleThreshold)
+                TryAddMod("EXTREME SCALE");
+            else if (worldScale >= SteamLargeScaleThreshold)
+                TryAddMod("LARGE SCALE");
+            else if (worldScale <= SteamSmallScaleThreshold)
+                TryAddMod("SMALL SCALE");
         }
 
         Rigidbody rb = rig.GetComponent<Rigidbody>();
