@@ -156,6 +156,24 @@ public class SettingsHandler
         GorillaInfoMain.Instance.updMain?.UpdateMainPage();
     }
 
+    public void SetLockOnStateFromRuntime(bool enabled, bool persist)
+    {
+        _lockOnEnabled = enabled;
+        if (GorillaInfoMain.Instance?.gunLib != null)
+            GorillaInfoMain.Instance.gunLib.autoLockEnabled = enabled;
+
+        if (persist)
+            _lockOnConfig.Value = enabled;
+
+        if (_lockOnText != null)
+            _lockOnText.text = enabled ? "LockOn: ON" : "LockOn: OFF";
+
+        if (persist)
+            GorillaInfoMain.Instance.Config.Save();
+
+        GorillaInfoMain.Instance.updMain?.UpdateMainPage();
+    }
+
     public void ToggleNametags()
     {
         _nametagsEnabled = !_nametagsEnabled;

@@ -27,6 +27,7 @@ public class GunLib
     public bool targetSphereEnabled = true;
 
     private bool _lastBPressed;
+    private bool _lastRightTriggerPressed;
     private int _currentGunStyleIndex;
     private const float MaxDistance = 50f;
     private const float GunRayWidth = 0.006f;
@@ -35,15 +36,13 @@ public class GunLib
     private const float NametagHeight = 0.95f;
     private const float NametagTextSize = 0.078f;
     private const int MaxModsShownInTag = 2;
-    private const float NametagPositionLerp = 18f;
-    private const float NametagRotationLerp = 20f;
     private const float RigCacheRefreshInterval = 0.2f;
     private const float ModsRefreshInterval = 1.2f;
     private const float StatsRefreshInterval = 0.35f;
-    private const float NametagUpdateInterval = 0.04f;
+    private const float NametagUpdateInterval = 1f / 90f;
     private const float LockVisualUpdateInterval = 1f / 30f;
     private const float LockPointerWidth = 0.0045f;
-    private const float LockSphereScale = 0.52f;
+    private const float LockSphereScale = 0.95f;
     private int _gunSizePresetIndex = 1;
 
     private static readonly float[] GunSizeMultipliers = new float[]
@@ -61,6 +60,7 @@ public class GunLib
     private readonly HashSet<VRRig> _activeRigSet = new HashSet<VRRig>();
     private readonly Dictionary<VRRig, string> _tagStatsCache = new Dictionary<VRRig, string>(24);
     private readonly Dictionary<VRRig, float> _tagStatsTimestamp = new Dictionary<VRRig, float>(24);
+    private readonly Dictionary<VRRig, float> _targetSphereScaleCache = new Dictionary<VRRig, float>(24);
     private float _nextRigCacheRefreshTime;
     private float _nextNametagUpdateTime;
     private float _nextLockVisualUpdateTime;
@@ -95,6 +95,9 @@ public class GunLib
         }
 
         bool gripHeld = ControllerInputPoller.instance.rightControllerGripFloat > 0.8f;
+        bool rightTriggerNow = SimpleInputs.RightTrigger;
+        bool rightTriggerDown = rightTriggerNow && !_lastRightTriggerPressed;
+        _lastRightTriggerPressed = rightTriggerNow;
 
         Transform hand = GorillaTagger.Instance.rightHandTransform;
         if (hand == null)
@@ -121,8 +124,17 @@ public class GunLib
         if (autoLockEnabled && IsRigValid(lockedTarget))
         {
             Vector3 targetPos = lockedTarget.transform.position + Vector3.up * 0.35f;
-            if (Vector3.Distance(start, targetPos) <= MaxDistance)
+            bool inRange = Vector3.Distance(start, targetPos) <= MaxDistance;
+            bool clearSight = inRange && HasLineOfSight(start, targetPos, lockedTarget);
+
+            if (clearSight)
                 end = targetPos;
+            else
+            {
+                autoLockEnabled = false;
+                GorillaInfoMain.Instance.settingsHandler?.SetLockOnStateFromRuntime(false, false);
+                GorillaInfoMain.Instance.updMain?.UpdateMainPage();
+            }
         }
 
         if (gunRay != null && gunSphere != null)
@@ -132,24 +144,22 @@ public class GunLib
             gunSphere.transform.position = end;
         }
 
-        if (!hitSomething && !passThroughEnabled)
+        if (rightTriggerDown)
         {
-            UpdateLockVisuals(start);
-            return;
-        }
+            VRRig hitRig = hitSomething ? hit.collider.GetComponentInParent<VRRig>() : null;
 
-        VRRig hitRig = passThroughEnabled ? FindClosestVRRigInDirection(start, dir) : (hitSomething ? hit.collider.GetComponentInParent<VRRig>() : null);
+            if (!IsRigValid(hitRig) && passThroughEnabled)
+                hitRig = FindClosestVRRigInDirection(start, dir);
 
-        if (hitRig == null || hitRig == GorillaTagger.Instance.offlineVRRig)
-        {
-            UpdateLockVisuals(start);
-            return;
-        }
-
-        if (SimpleInputs.RightTrigger && lockedTarget != hitRig)
-        {
-            lockedTarget = hitRig;
-            GorillaInfoMain.Instance.updMain.UpdateMainPage();
+            if (IsRigValid(hitRig))
+            {
+                Vector3 lockPos = hitRig.transform.position + Vector3.up * 0.35f;
+                if (Vector3.Distance(start, lockPos) <= MaxDistance && HasLineOfSight(start, lockPos, hitRig) && lockedTarget != hitRig)
+                {
+                    lockedTarget = hitRig;
+                    GorillaInfoMain.Instance.updMain.UpdateMainPage();
+                }
+            }
         }
 
         UpdateLockVisuals(start);
@@ -221,6 +231,14 @@ public class GunLib
         lockedTarget = null;
         gunSuppressedAfterInfoUpdate = false;
         HideLockVisuals();
+    }
+
+    public void OnMenuClosed()
+    {
+        autoLockEnabled = false;
+        _lastRightTriggerPressed = false;
+        ClearSelection();
+        destroy();
     }
 
     public void SetGunStyle(int styleIndex)
@@ -378,16 +396,13 @@ public class GunLib
 
         Transform tagTransform = visual.Root;
         Vector3 targetPosition = rig.transform.position + Vector3.up * NametagHeight;
-        if (tagTransform.position == Vector3.zero)
-            tagTransform.position = targetPosition;
-        else
-            tagTransform.position = Vector3.Lerp(tagTransform.position, targetPosition, Time.deltaTime * NametagPositionLerp);
+        tagTransform.position = targetPosition;
 
         Camera camera = Camera.main;
         if (camera != null)
         {
             Quaternion targetRotation = Quaternion.LookRotation(tagTransform.position - camera.transform.position);
-            tagTransform.rotation = Quaternion.Slerp(tagTransform.rotation, targetRotation, Time.deltaTime * NametagRotationLerp);
+            tagTransform.rotation = targetRotation;
         }
 
         string playerName = rig.Creator?.GetPlayerRef()?.NickName ?? "Unknown";
@@ -547,6 +562,25 @@ public class GunLib
         return rig != null && rig != GorillaTagger.Instance.offlineVRRig;
     }
 
+    private bool HasLineOfSight(Vector3 from, Vector3 to, VRRig targetRig)
+    {
+        if (!Physics.Linecast(from, to, out RaycastHit hit, -1, QueryTriggerInteraction.Ignore))
+            return true;
+
+        Transform hitTransform = hit.collider != null ? hit.collider.transform : null;
+        if (hitTransform == null)
+            return true;
+
+        if (targetRig != null && hitTransform.IsChildOf(targetRig.transform))
+            return true;
+
+        Transform localRig = GorillaTagger.Instance?.offlineVRRig?.transform;
+        if (localRig != null && hitTransform.IsChildOf(localRig))
+            return true;
+
+        return false;
+    }
+
     private void EnsureLockVisuals()
     {
         if (_lockPointer == null)
@@ -604,8 +638,9 @@ public class GunLib
             if (showSphere)
             {
                 _lockSphere.transform.position = targetPosition;
-                float pulse = 1f + Mathf.Sin(Time.time * 5.5f) * 0.07f;
-                _lockSphere.transform.localScale = Vector3.one * LockSphereScale * pulse;
+                float pulse = 1f + Mathf.Sin(Time.time * 5.5f) * 0.05f;
+                float targetScale = GetTargetSphereScale(lockedTarget);
+                _lockSphere.transform.localScale = Vector3.one * targetScale * pulse;
             }
         }
 
@@ -702,6 +737,37 @@ public class GunLib
         _modsCacheTimestamp.Clear();
         _tagStatsCache.Clear();
         _tagStatsTimestamp.Clear();
+        _targetSphereScaleCache.Clear();
         _activeRigSet.Clear();
+    }
+
+    private float GetTargetSphereScale(VRRig rig)
+    {
+        if (rig == null)
+            return LockSphereScale;
+
+        if (_targetSphereScaleCache.TryGetValue(rig, out float cached) && cached > 0.01f)
+            return cached;
+
+        float maxExtent = 0.45f;
+        Renderer[] renderers = rig.GetComponentsInChildren<Renderer>(true);
+        if (renderers != null)
+        {
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                if (renderer == null)
+                    continue;
+
+                Bounds bounds = renderer.bounds;
+                float localExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
+                if (localExtent > maxExtent)
+                    maxExtent = localExtent;
+            }
+        }
+
+        float scale = Mathf.Clamp(maxExtent * 2.2f, 0.9f, 2.4f);
+        _targetSphereScaleCache[rig] = scale;
+        return scale;
     }
 }

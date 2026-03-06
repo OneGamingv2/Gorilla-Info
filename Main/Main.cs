@@ -61,7 +61,8 @@ namespace GorillaInfo
 
             if (menuState == MenuState.Closed && !_gunDestroyed && spawned)
             {
-                gunLib.destroy();
+                gunLib.OnMenuClosed();
+                settingsHandler?.SetLockOnStateFromRuntime(false, false);
                 _gunDestroyed = true;
             }
 
