@@ -11,6 +11,9 @@ public class Button
     private bool _anyTouchThisFrame;
     private Collider _latchedCollider;
     private const float ClickCooldown = 0.2f;
+    private const float OpenClickGuardSeconds = 0.28f;
+    private const float MaxButtonColliderExtent = 0.22f;
+    private bool _wasMenuOpen;
 
     public void checkbuttons()
     {
@@ -18,7 +21,22 @@ public class Button
         var sphere = GorillaInfoMain.Instance?.buttonClick?.fingerSphere;
 
         if (menu == null || sphere == null || GorillaInfoMain.Instance.menuState != GorillaInfoMain.MenuState.Open)
+        {
+            _wasMenuOpen = false;
+            _touchLatchActive = false;
+            _latchedCollider = null;
+            _buttonTouchStates.Clear();
             return;
+        }
+
+        if (!_wasMenuOpen)
+        {
+            _wasMenuOpen = true;
+            _nextAllowedClickTime = Time.time + OpenClickGuardSeconds;
+            _touchLatchActive = true;
+            _latchedCollider = null;
+            _buttonTouchStates.Clear();
+        }
 
         Transform sections = FindDeepChild(menu.transform, "Sections");
         if (sections == null) return;
@@ -105,6 +123,12 @@ public class Button
             }
         }
 
+        if (_latchedCollider != null && !IsTouchingCollider(_latchedCollider, spherePos))
+        {
+            _touchLatchActive = false;
+            _latchedCollider = null;
+        }
+
         if (!_anyTouchThisFrame)
         {
             _touchLatchActive = false;
@@ -177,14 +201,40 @@ public class Button
         if (candidate == null)
             return null;
 
-        if (candidate.GetComponent<Collider>() != null)
+        Collider candidateCollider = candidate.GetComponent<Collider>();
+        if (IsLikelyButtonCollider(candidateCollider))
             return candidate;
 
         Transform parent = candidate.parent;
-        if (parent != null && parent.GetComponent<Collider>() != null)
+        if (parent != null && IsLikelyButtonCollider(parent.GetComponent<Collider>()))
             return parent;
 
         return null;
+    }
+
+    private bool IsLikelyButtonCollider(Collider col)
+    {
+        if (col == null)
+            return false;
+
+        Bounds b = col.bounds;
+        if (b.extents.x > MaxButtonColliderExtent ||
+            b.extents.y > MaxButtonColliderExtent ||
+            b.extents.z > MaxButtonColliderExtent)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool IsTouchingCollider(Collider col, Vector3 spherePos)
+    {
+        if (col == null)
+            return false;
+
+        Vector3 closest = col.ClosestPoint(spherePos);
+        return (spherePos - closest).sqrMagnitude <= (_interactionRadius * _interactionRadius);
     }
 
     private string NormalizeName(string value)
@@ -206,8 +256,7 @@ public class Button
         if (!_buttonTouchStates.TryGetValue(target, out bool wasTouching))
             wasTouching = false;
 
-        Vector3 closest = col.ClosestPoint(spherePos);
-        bool touching = (spherePos - closest).sqrMagnitude <= (_interactionRadius * _interactionRadius);
+        bool touching = IsTouchingCollider(col, spherePos);
         if (touching)
             _anyTouchThisFrame = true;
 
