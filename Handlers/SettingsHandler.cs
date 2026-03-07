@@ -178,6 +178,8 @@ public class SettingsHandler
     {
         _nametagsEnabled = !_nametagsEnabled;
         GorillaInfoMain.Instance.gunLib.nametagsEnabled = _nametagsEnabled;
+        if (_nametagsEnabled)
+            GorillaInfoMain.Instance.gunLib.ForceNametagRefresh();
         _nametagsConfig.Value = _nametagsEnabled;
         if (_nametagsText != null)
             _nametagsText.text = _nametagsEnabled ? "Nametags: ON" : "Nametags: OFF";

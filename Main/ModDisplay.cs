@@ -12,7 +12,9 @@ namespace GorillaInfo
         private TextMesh _userHasText;
         private List<string> _allMods = new(32);
         private int _currentPage;
-        private const int ModsPerPage = 8;
+        private const int VisibleRows = 8;
+        private const int StatusRowIndex = 0;
+        private const int ModsPerPage = VisibleRows - 1;
         private readonly Dictionary<int, bool> _buttonTouchStates = new(2);
 
         public void Initialize(GameObject miscPanel)
@@ -44,7 +46,7 @@ namespace GorillaInfo
 
         public void SetMods(List<string> mods)
         {
-            _allMods = new List<string>(mods);
+            _allMods = mods != null ? new List<string>(mods) : new List<string>(0);
             _currentPage = 0;
             RefreshDisplay();
         }
@@ -86,7 +88,7 @@ namespace GorillaInfo
             if (touching && !wasTouching)
             {
                 int newPage = _currentPage + pageChange;
-                int maxPage = (_allMods.Count + ModsPerPage - 1) / ModsPerPage - 1;
+                int maxPage = Mathf.Max(0, (_allMods.Count + ModsPerPage - 1) / ModsPerPage - 1);
 
                 if (newPage >= 0 && newPage <= maxPage)
                 {
@@ -103,12 +105,22 @@ namespace GorillaInfo
             UpdateModCount();
 
             int startIdx = _currentPage * ModsPerPage;
+            bool flagged = _allMods.Count > 0;
 
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < VisibleRows; i++)
             {
                 if (_modContainers[i] == null || _modTexts[i] == null) continue;
 
-                int modIdx = startIdx + i;
+                if (i == StatusRowIndex)
+                {
+                    _modTexts[i].text = flagged
+                        ? "<color=#FF5E5E>STATUS: FLAGGED</color>"
+                        : "<color=#7CFF7C>STATUS: CLEAN</color>";
+                    _modContainers[i].SetActive(true);
+                    continue;
+                }
+
+                int modIdx = startIdx + (i - 1);
                 if (modIdx < _allMods.Count)
                 {
                     _modTexts[i].text = _allMods[modIdx];
@@ -124,7 +136,12 @@ namespace GorillaInfo
         private void UpdateModCount()
         {
             if (_userHasText != null)
-                _userHasText.text = $"User has {_allMods.Count} Mods";
+            {
+                if (_allMods.Count > 0)
+                    _userHasText.text = $"<color=#FF5E5E>FLAGGED</color> | {_allMods.Count} detections";
+                else
+                    _userHasText.text = "<color=#7CFF7C>CLEAN</color> | 0 detections";
+            }
         }
     }
 }

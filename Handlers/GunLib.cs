@@ -36,13 +36,14 @@ public class GunLib
     private const float NametagHeight = 0.95f;
     private const float NametagTextSize = 0.078f;
     private const int MaxModsShownInTag = 2;
-    private const float RigCacheRefreshInterval = 0.2f;
+    private const float RigCacheRefreshInterval = 0.05f;
     private const float ModsRefreshInterval = 1.2f;
     private const float StatsRefreshInterval = 0.35f;
-    private const float NametagUpdateInterval = 1f / 90f;
+    private const float VisibilityRefreshInterval = 1f / 14f;
+    private const float NametagUpdateInterval = 1f / 60f;
     private const float LockVisualUpdateInterval = 1f / 30f;
     private const float LockPointerWidth = 0.0045f;
-    private const float LockSphereScale = 0.95f;
+    private const float LockSphereScale = 0.68f;
     private int _gunSizePresetIndex = 1;
 
     private static readonly float[] GunSizeMultipliers = new float[]
@@ -60,6 +61,9 @@ public class GunLib
     private readonly HashSet<VRRig> _activeRigSet = new HashSet<VRRig>();
     private readonly Dictionary<VRRig, string> _tagStatsCache = new Dictionary<VRRig, string>(24);
     private readonly Dictionary<VRRig, float> _tagStatsTimestamp = new Dictionary<VRRig, float>(24);
+    private readonly Dictionary<VRRig, bool> _tagVisibilityCache = new Dictionary<VRRig, bool>(24);
+    private readonly Dictionary<VRRig, float> _tagVisibilityTimestamp = new Dictionary<VRRig, float>(24);
+    private readonly Dictionary<VRRig, string> _tagRenderedTextCache = new Dictionary<VRRig, string>(24);
     private readonly Dictionary<VRRig, float> _targetSphereScaleCache = new Dictionary<VRRig, float>(24);
     private float _nextRigCacheRefreshTime;
     private float _nextNametagUpdateTime;
@@ -165,26 +169,50 @@ public class GunLib
 
     private VRRig FindClosestVRRigInDirection(Vector3 start, Vector3 dir)
     {
-        VRRig closest = null;
-        float closestDist = NametagDistance;
+        VRRig bestRig = null;
+        float bestScore = float.MinValue;
+        Vector3 normalizedDir = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector3.forward;
+
         RefreshRigCache();
 
         for (int i = 0; i < _rigCache.Count; i++)
         {
             VRRig rig = _rigCache[i];
-            if (rig == GorillaTagger.Instance.offlineVRRig) continue;
+            if (!IsRigValid(rig))
+                continue;
 
-            Vector3 rigPos = rig.transform.position;
-            float dist = Vector3.Distance(start, rigPos);
-            if (dist > closestDist) continue;
+            Vector3 targetPos = rig.transform.position + Vector3.up * 0.35f;
+            Vector3 toRig = targetPos - start;
+            float dist = toRig.magnitude;
+            if (dist < 0.01f || dist > MaxDistance)
+                continue;
 
-            Vector3 toRig = (rigPos - start).normalized;
-            if (Vector3.Dot(dir, toRig) < 0.7f) continue;
+            Vector3 toRigDir = toRig / dist;
+            float forwardDot = Vector3.Dot(normalizedDir, toRigDir);
+            if (forwardDot < 0.45f)
+                continue;
 
-            closestDist = dist;
-            closest = rig;
+            float lateralDistance = Vector3.Cross(normalizedDir, toRig).magnitude;
+            float allowedLateral = Mathf.Lerp(0.16f, 1.35f, Mathf.Clamp01(dist / MaxDistance));
+            if (lateralDistance > allowedLateral)
+                continue;
+
+            if (!HasLineOfSight(start, targetPos, rig))
+                continue;
+
+            float score =
+                (forwardDot * 2.35f) -
+                (lateralDistance * 0.9f) -
+                (dist * 0.012f);
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestRig = rig;
+            }
         }
-        return closest;
+
+        return bestRig;
     }
 
     private void makeGun()
@@ -226,9 +254,13 @@ public class GunLib
 
     public void ClearSelection()
     {
+        bool hadSelection = IsRigValid(lockedTarget);
         lockedTarget = null;
         gunSuppressedAfterInfoUpdate = false;
         HideLockVisuals();
+
+        if (hadSelection)
+            GorillaInfoMain.Instance?.notificationManager?.Notify("Selection cleared");
     }
 
     public bool TrySetLockedTarget(VRRig target, bool requireLineOfSight)
@@ -250,7 +282,20 @@ public class GunLib
 
         lockedTarget = target;
         gunSuppressedAfterInfoUpdate = false;
+        NotifySelection(target);
         return true;
+    }
+
+    private void NotifySelection(VRRig target)
+    {
+        if (target == null)
+            return;
+
+        string name = target.Creator?.GetPlayerRef()?.NickName;
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Unknown";
+
+        GorillaInfoMain.Instance?.notificationManager?.Notify($"Selected: <color=#00FFAA>{name}</color>");
     }
 
     public void OnMenuClosed()
@@ -286,6 +331,13 @@ public class GunLib
         targetSphereEnabled = enabled;
         if (!enabled && _lockSphere != null)
             _lockSphere.SetActive(false);
+    }
+
+    public void ForceNametagRefresh()
+    {
+        _nextRigCacheRefreshTime = 0f;
+        _nextNametagUpdateTime = 0f;
+        RefreshRigCache(true);
     }
 
     public int GetGunSizePresetIndex()
@@ -402,6 +454,9 @@ public class GunLib
                 _modsCacheTimestamp.Remove(rig);
                 _tagStatsCache.Remove(rig);
                 _tagStatsTimestamp.Remove(rig);
+                _tagVisibilityCache.Remove(rig);
+                _tagVisibilityTimestamp.Remove(rig);
+                _tagRenderedTextCache.Remove(rig);
             }
         }
     }
@@ -429,7 +484,7 @@ public class GunLib
         string statsText = GetCachedStatsText(rig);
         string modsText = GetCachedModsNametagText(rig);
 
-        bool visible = IsTagVisibleToCamera(rig, tagTransform.position);
+        bool visible = GetCachedVisibility(rig, tagTransform.position);
         if (visual.MainText != null)
             visual.MainText.gameObject.SetActive(visible);
         if (visual.ShadowText != null)
@@ -444,8 +499,12 @@ public class GunLib
             ? $"<color=#FFFFFF>{playerName}</color>\n<color=#A8D8FF>{statsText}</color>"
             : $"<color=#FFFFFF>{playerName}</color>\n<color=#A8D8FF>{statsText}</color>\n<color=#8CFF9B>{modsText}</color>";
 
-        visual.MainText.text = tagText;
-        visual.ShadowText.text = tagText;
+        if (!_tagRenderedTextCache.TryGetValue(rig, out string rendered) || !string.Equals(rendered, tagText))
+        {
+            visual.MainText.text = tagText;
+            visual.ShadowText.text = tagText;
+            _tagRenderedTextCache[rig] = tagText;
+        }
 
         float lineCount = string.IsNullOrEmpty(modsText) ? 2f : 3f;
         Vector3 bgScale = new Vector3(0.56f, 0.12f + (lineCount - 2f) * 0.06f, 1f);
@@ -561,9 +620,27 @@ public class GunLib
         }
     }
 
-    private void RefreshRigCache()
+    private bool GetCachedVisibility(VRRig rig, Vector3 tagPosition)
     {
-        if (Time.time < _nextRigCacheRefreshTime)
+        if (rig == null)
+            return false;
+
+        if (_tagVisibilityCache.TryGetValue(rig, out bool cachedVisible) &&
+            _tagVisibilityTimestamp.TryGetValue(rig, out float ts) &&
+            Time.time - ts < VisibilityRefreshInterval)
+        {
+            return cachedVisible;
+        }
+
+        bool value = IsTagVisibleToCamera(rig, tagPosition);
+        _tagVisibilityCache[rig] = value;
+        _tagVisibilityTimestamp[rig] = Time.time;
+        return value;
+    }
+
+    private void RefreshRigCache(bool force = false)
+    {
+        if (!force && Time.time < _nextRigCacheRefreshTime)
             return;
 
         _nextRigCacheRefreshTime = Time.time + RigCacheRefreshInterval;
@@ -770,6 +847,9 @@ public class GunLib
         _modsCacheTimestamp.Clear();
         _tagStatsCache.Clear();
         _tagStatsTimestamp.Clear();
+        _tagVisibilityCache.Clear();
+        _tagVisibilityTimestamp.Clear();
+        _tagRenderedTextCache.Clear();
         _targetSphereScaleCache.Clear();
         _activeRigSet.Clear();
     }
@@ -799,7 +879,7 @@ public class GunLib
             }
         }
 
-        float scale = Mathf.Clamp(maxExtent * 2.2f, 0.9f, 2.4f);
+        float scale = Mathf.Clamp(maxExtent * 1.55f, 0.55f, 1.45f);
         _targetSphereScaleCache[rig] = scale;
         return scale;
     }
