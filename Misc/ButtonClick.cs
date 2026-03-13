@@ -28,7 +28,13 @@ namespace GorillaInfo
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.receiveShadows = false;
 
-            fingerSphere.layer = LayerMask.NameToLayer("GorillaInteractable");
+            int interactableLayer = LayerMask.NameToLayer("GorillaInteractable");
+            if (interactableLayer >= 0)
+                fingerSphere.layer = interactableLayer;
+            else
+                fingerSphere.layer = LayerMask.NameToLayer("Default");
+
+            DontDestroyOnLoad(fingerSphere);
         }
 
         public void ballvisibility()

@@ -3,11 +3,13 @@ using GorillaInfo;
 using System.Collections.Generic;
 using Checker;
 using Photon.Pun;
+using Steamworks;
 
 public class MoreInfoHandler
 {
     private GameObject _moreInfoPanel;
     private TextMesh _nameText;
+    private TextMesh _steamNameText;
     private TextMesh _speedText;
     private TextMesh _platformText;
     private TextMesh _pingText;
@@ -15,6 +17,7 @@ public class MoreInfoHandler
     private Renderer _object14Renderer;
     private bool _isOpen;
     private Vector3 _scaleVelocity;
+    private VRRig _targetRig;
     private VRRig _speedRig;
     private Vector3 _lastSpeedPosition;
     private float _lastSpeedTime;
@@ -23,6 +26,12 @@ public class MoreInfoHandler
     private const float OpenSnapThresholdSqr = 0.000001f;
     private const float CloseSnapThresholdSqr = 0.00001f;
     private const float InfoRefreshInterval = 0.1f;
+
+    // Traffic-light colours used across all info fields
+    private static readonly Color ColGood = new Color(0.20f, 1.00f, 0.45f);   // green
+    private static readonly Color ColOk   = new Color(1.00f, 0.88f, 0.12f);   // yellow
+    private static readonly Color ColBad  = new Color(1.00f, 0.25f, 0.25f);   // red
+    private static readonly Color ColInfo = Color.white;
 
     private Dictionary<string, Material> _furMaterials = new Dictionary<string, Material>();
     private Color[] _materialColors = new Color[]
@@ -50,18 +59,26 @@ public class MoreInfoHandler
         _moreInfoPanel = menuInstance.transform.Find("MoreInfo")?.gameObject;
         if (_moreInfoPanel == null) return;
 
+        // Clear any bad rotation baked into the prefab panel
+        _moreInfoPanel.transform.localRotation = Quaternion.identity;
+
         _nameText = _moreInfoPanel.transform.Find("Name")?.GetComponent<TextMesh>();
         _speedText = _moreInfoPanel.transform.Find("Speed")?.GetComponent<TextMesh>();
         _platformText = _moreInfoPanel.transform.Find("Platform")?.GetComponent<TextMesh>();
         _pingText = _moreInfoPanel.transform.Find("Ping")?.GetComponent<TextMesh>();
         _worldScaleText = _moreInfoPanel.transform.Find("WorldScale")?.GetComponent<TextMesh>();
 
+        // Steam name row — sits between player name and speed
+        _steamNameText = _moreInfoPanel.transform.Find("SteamName")?.GetComponent<TextMesh>();
+        if (_steamNameText == null)
+            _steamNameText = CreateInfoText("SteamName", new Vector3(0f, 0.044f, -0.01f));
+
         if (_platformText == null)
-            _platformText = CreateInfoText("Platform", new Vector3(0f, -0.02f, -0.01f));
+            _platformText = CreateInfoText("Platform", new Vector3(0f, -0.014f, -0.01f));
         if (_pingText == null)
-            _pingText = CreateInfoText("Ping", new Vector3(0f, -0.05f, -0.01f));
+            _pingText = CreateInfoText("Ping", new Vector3(0f, -0.042f, -0.01f));
         if (_worldScaleText == null)
-            _worldScaleText = CreateInfoText("WorldScale", new Vector3(0f, -0.08f, -0.01f));
+            _worldScaleText = CreateInfoText("WorldScale", new Vector3(0f, -0.070f, -0.01f));
 
         NormalizeInfoFields();
         DisableFpsArtifacts();
@@ -84,11 +101,12 @@ public class MoreInfoHandler
 
     private void NormalizeInfoFields()
     {
-        ConfigureInfoField(_nameText, 0.015f);
-        ConfigureInfoField(_speedText, 0.0135f);
-        ConfigureInfoField(_platformText, 0.0135f);
-        ConfigureInfoField(_pingText, 0.0135f);
-        ConfigureInfoField(_worldScaleText, 0.0135f);
+        ConfigureInfoField(_nameText,      0.015f);
+        ConfigureInfoField(_steamNameText, 0.012f);
+        ConfigureInfoField(_speedText,     0.0125f);
+        ConfigureInfoField(_platformText,  0.0125f);
+        ConfigureInfoField(_pingText,      0.0125f);
+        ConfigureInfoField(_worldScaleText,0.0125f);
     }
 
     private void ConfigureInfoField(TextMesh text, float characterSize)
@@ -99,7 +117,8 @@ public class MoreInfoHandler
         text.transform.localRotation = Quaternion.identity;
         text.transform.localScale = Vector3.one;
         text.characterSize = characterSize;
-        text.fontStyle = FontStyle.Bold;
+        if (text.font != null && text.font.dynamic)
+            text.fontStyle = FontStyle.Bold;
         text.anchor = TextAnchor.MiddleCenter;
         text.alignment = TextAlignment.Center;
     }
@@ -116,16 +135,17 @@ public class MoreInfoHandler
             if (tm == null)
                 continue;
 
-            string name = tm.gameObject.name;
-            string content = tm.text ?? string.Empty;
-
-            bool isKnownInfoField = tm == _nameText || tm == _speedText || tm == _platformText || tm == _pingText || tm == _worldScaleText;
-            if (!isKnownInfoField &&
-                (name.IndexOf("fps", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 content.IndexOf("fps", System.StringComparison.OrdinalIgnoreCase) >= 0))
+            bool isKnownInfoField = tm == _nameText || tm == _steamNameText || tm == _speedText ||
+                                     tm == _platformText || tm == _pingText || tm == _worldScaleText;
+            if (isKnownInfoField)
             {
-                tm.gameObject.SetActive(false);
+                // Ensure known fields face forward (no sideways rotation from prefab)
+                tm.transform.localRotation = Quaternion.identity;
+                continue;
             }
+
+            // Hide ALL unknown text — old prefab labels, debug text, etc.
+            tm.gameObject.SetActive(false);
         }
     }
 
@@ -208,28 +228,112 @@ public class MoreInfoHandler
         VRRig target = GorillaInfoMain.Instance?.gunLib?.lockedTarget;
         if (target == null) return;
 
-        if (_nameText != null)
+        // Flush cached scale when locked target changes
+        if (target != _targetRig)
         {
-            string playerName = target.Creator?.GetPlayerRef()?.NickName ?? "Unknown";
-            _nameText.text = playerName;
+            _targetRig = target;
+            WorldScaleResolver.ForceRefreshForRig(target);
         }
 
+        string photonName = target.Creator?.GetPlayerRef()?.NickName ?? "Unknown";
+
+        // ── Name row (always white) ──────────────────────────────────────────
+        if (_nameText != null)
+        {
+            _nameText.text  = photonName;
+            _nameText.color = ColInfo;
+        }
+
+        // ── Steam name row (colour = spoof status) ───────────────────────────
+        if (_steamNameText != null)
+        {
+            bool hasSteam = WorldScaleResolver.TryGetSteamPersonaName(target, out string steamName);
+            if (!hasSteam)
+            {
+                _steamNameText.text  = "Steam: N/A";
+                _steamNameText.color = ColOk;   // yellow — no Steam data available
+            }
+            else if (steamName.Equals(photonName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                _steamNameText.text  = $"Steam: {steamName}";
+                _steamNameText.color = ColGood;  // green — name matches, legit
+            }
+            else
+            {
+                _steamNameText.text  = $"Steam: {steamName}";
+                _steamNameText.color = ColBad;   // red — Photon name differs from Steam name (spoofed)
+            }
+        }
+
+        // ── Speed row ────────────────────────────────────────────────────────
         if (_speedText != null)
         {
             float speed = GetPlayerSpeed(target);
-            _speedText.text = $"Speed: {speed:F2} m/s\nPlatform: {ParsePlatform(target.GetPlatform())}\nPing: {GetPlayerPing(target)}ms\nWorld Scale: {WorldScaleResolver.GetWorldScale(target) * 100f:F0}%";
+            _speedText.text  = $"Speed: {speed:F2} m/s";
+            _speedText.color = SpeedToColor(speed);
         }
 
+        // ── Platform row ─────────────────────────────────────────────────────
         if (_platformText != null)
-            _platformText.text = $"Platform: {ParsePlatform(target.GetPlatform())}";
+        {
+            Platform plat = target.GetPlatform();
+            _platformText.text  = $"Platform: {ParsePlatform(plat)}";
+            _platformText.color = PlatformToColor(plat);
+        }
 
+        // ── Ping row ─────────────────────────────────────────────────────────
         if (_pingText != null)
-            _pingText.text = $"Ping: {GetPlayerPing(target)}ms";
+        {
+            int ping = GetPlayerPing(target);
+            _pingText.text  = $"Ping: {ping}ms";
+            _pingText.color = PingToColor(ping);
+        }
 
+        // ── World Scale row ──────────────────────────────────────────────────
         if (_worldScaleText != null)
-            _worldScaleText.text = $"World Scale: {WorldScaleResolver.GetWorldScale(target) * 100f:F0}%";
+        {
+            float ws = WorldScaleResolver.GetWorldScale(target);
+            int wsPercent = Mathf.RoundToInt(ws * 100f);
+            _worldScaleText.text  = $"World Scale: {wsPercent}%";
+            _worldScaleText.color = ScaleToColor(ws);
+        }
 
         UpdateModelMaterial(target);
+    }
+
+    // ── Colour helpers ──────────────────────────────────────────────────────
+
+    private static Color ScaleToColor(float scale)
+    {
+        // 100% (±5%) = green, 80–95% or 105–125% = yellow, outside = red
+        if (scale >= 0.95f && scale <= 1.05f) return ColGood;
+        if (scale >= 0.80f && scale <= 1.25f) return ColOk;
+        return ColBad;
+    }
+
+    private static Color SpeedToColor(float metersPerSec)
+    {
+        if (metersPerSec < 5f)  return ColGood;
+        if (metersPerSec < 12f) return ColOk;
+        return ColBad;
+    }
+
+    private static Color PingToColor(int ms)
+    {
+        if (ms < 90)  return ColGood;
+        if (ms < 200) return ColOk;
+        return ColBad;
+    }
+
+    private static Color PlatformToColor(Platform plat)
+    {
+        switch (plat)
+        {
+            case Platform.Steam:      return ColGood;               // green — verified Steam PC
+            case Platform.PC:         return ColOk;                 // yellow — PC but not Steam-verified
+            case Platform.Standalone: return new Color(0.4f, 0.8f, 1f); // cyan — Quest
+            default:                  return ColInfo;
+        }
     }
 
     private TextMesh CreateInfoText(string name, Vector3 localPosition)
@@ -247,7 +351,8 @@ public class MoreInfoHandler
         text.anchor = TextAnchor.MiddleCenter;
         text.alignment = TextAlignment.Center;
         text.characterSize = 0.016f;
-        text.fontStyle = FontStyle.Bold;
+        if (text.font != null && text.font.dynamic)
+            text.fontStyle = FontStyle.Bold;
         text.color = Color.white;
         return text;
     }

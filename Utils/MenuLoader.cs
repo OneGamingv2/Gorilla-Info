@@ -65,10 +65,13 @@ namespace GorillaInfo
             RepositionMoreInfo(menuInstance.transform);
 
             GorillaInfoMain main = GorillaInfoMain.Instance;
-            main.buttonClick = menuInstance.AddComponent<ButtonClick>();
+            if (main.buttonClick == null)
+                main.buttonClick = main.gameObject.AddComponent<ButtonClick>();
             main.buttonClick.ball();
             main.misc.initmaintexts();
             main.misc.initmisctexts();
+            main.misc.InitactionsTexts();
+            main.misc.InitLobbyTexts();
             main.misc.EnableMain();
             main.settingsHandler?.InitializeSettings();
             main.moreInfoHandler?.Initialize();
@@ -195,7 +198,7 @@ namespace GorillaInfo
                 if (size >= TextBoostMin && size <= TextBoostMax)
                     text.characterSize = size * TextBoostMultiplier;
 
-                if (text.fontStyle == FontStyle.Normal)
+                if (text.fontStyle == FontStyle.Normal && text.font != null && text.font.dynamic)
                     text.fontStyle = FontStyle.Bold;
             }
         }
@@ -274,6 +277,7 @@ namespace GorillaInfo
             CreateText(tab, "MusicHeader", "Music", new Vector3(0f, 0.17f, -0.01f), 0.020f, TextAnchor.MiddleCenter);
             CreateText(tab, "SongTitle", "No media detected", new Vector3(-0.22f, 0.14f, -0.01f), 0.03f, TextAnchor.MiddleLeft);
             CreateText(tab, "SongArtist", "-", new Vector3(-0.22f, 0.09f, -0.01f), 0.024f, TextAnchor.MiddleLeft);
+            CreateText(tab, "ProviderState", "No source", new Vector3(-0.22f, 0.04f, -0.01f), 0.020f, TextAnchor.MiddleLeft);
 
             CreateButton(tab, "Previous", "Prev", new Vector3(-0.17f, -0.12f, 0f), new Vector3(0.10f, 0.05f, 0.012f), ButtonColor);
             CreateButton(tab, "PauseButton", "Play/Pause", new Vector3(-0.03f, -0.12f, 0f), new Vector3(0.14f, 0.05f, 0.012f), ButtonColor);

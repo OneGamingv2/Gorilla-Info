@@ -5,6 +5,8 @@ public class NotificationManager
     public bool notificationsEnabled = true;
     private const float NotificationLifetime = 5f;
     private const float NotificationScale = 0.03f;
+    private Camera _mainCamera;
+    private Transform _notificationContainer;
 
     public void ToggleNotifications()
     {
@@ -21,25 +23,32 @@ public class NotificationManager
 
     private void NotifyDirect(string message)
     {
-        Camera cam = Camera.main;
+        if (_mainCamera == null || !_mainCamera.gameObject.activeInHierarchy)
+            _mainCamera = Camera.main;
+        Camera cam = _mainCamera;
         if (cam == null) return;
 
-        Transform parent = cam.transform.Find("VR_NOTIFICATION_CONTAINER");
+        if (_notificationContainer == null || _notificationContainer.gameObject == null)
+        {
+            Transform found = cam.transform.Find("VR_NOTIFICATION_CONTAINER");
+            if (found != null)
+            {
+                _notificationContainer = found;
+            }
+            else
+            {
+                GameObject container = new GameObject("VR_NOTIFICATION_CONTAINER");
+                container.transform.SetParent(cam.transform);
+                container.transform.localPosition = new Vector3(-0.3f, -0.2f, 0.9f);
+                container.transform.localRotation = Quaternion.identity;
+                container.transform.localScale = Vector3.one * NotificationScale;
+                _notificationContainer = container.transform;
+            }
+        }
 
-        if (parent == null)
-        {
-            GameObject container = new GameObject("VR_NOTIFICATION_CONTAINER");
-            container.transform.SetParent(cam.transform);
-            container.transform.localPosition = new Vector3(-0.3f, -0.2f, 0.9f);
-            container.transform.localRotation = Quaternion.identity;
-            container.transform.localScale = Vector3.one * NotificationScale;
-            parent = container.transform;
-        }
-        else
-        {
-            for (int i = 0; i < parent.childCount; i++)
-                parent.GetChild(i).localPosition += new Vector3(0, 2f, 0);
-        }
+        Transform parent = _notificationContainer;
+        for (int i = 0; i < parent.childCount; i++)
+            parent.GetChild(i).localPosition += new Vector3(0, 2f, 0);
 
         GameObject notification = new GameObject("Notification");
         notification.transform.SetParent(parent, false);

@@ -9,7 +9,7 @@ namespace GorillaInfo
 {
     public class MusicHandler
     {
-        public TextMesh txtSongTitle, txtSongArtist;
+        public TextMesh txtSongTitle, txtSongArtist, txtProviderState;
         private GameObject musicTab;
         private Camera _previewCamera;
         private RenderTexture _previewTexture;
@@ -88,6 +88,10 @@ namespace GorillaInfo
                 txtSongTitle = titleTrans.GetComponent<TextMesh>();
             if (artistTrans != null)
                 txtSongArtist = artistTrans.GetComponent<TextMesh>();
+
+            Transform providerStateTrans = FindDeepChild(musicTabTrans, "ProviderState");
+            if (providerStateTrans != null)
+                txtProviderState = providerStateTrans.GetComponent<TextMesh>();
 
             NormalizeMusicHeader(menu, musicTabTrans);
             EnsureMusicTextSizing();
@@ -525,15 +529,20 @@ namespace GorillaInfo
             if (txtSongTitle != null)
             {
                 txtSongTitle.characterSize = Mathf.Max(txtSongTitle.characterSize, 0.018f);
-                txtSongTitle.fontStyle = FontStyle.Bold;
+                if (txtSongTitle.font != null && txtSongTitle.font.dynamic)
+                    txtSongTitle.fontStyle = FontStyle.Bold;
             }
 
             if (txtSongArtist != null)
             {
                 txtSongArtist.characterSize = Mathf.Max(txtSongArtist.characterSize, 0.015f);
-                txtSongArtist.fontStyle = FontStyle.Bold;
+                if (txtSongArtist.font != null && txtSongArtist.font.dynamic)
+                    txtSongArtist.fontStyle = FontStyle.Bold;
                 txtSongArtist.lineSpacing = 0.9f;
             }
+
+            if (txtProviderState != null)
+                txtProviderState.characterSize = Mathf.Max(txtProviderState.characterSize, 0.012f);
         }
 
         private Transform FindDeepChild(Transform parent, string name)
@@ -623,7 +632,10 @@ namespace GorillaInfo
                 txtSongTitle.text = currentTitle;
 
             if (txtSongArtist != null)
-                txtSongArtist.text = $"{currentArtist}\n{currentProvider} | {currentState}";
+                txtSongArtist.text = currentArtist;
+
+            if (txtProviderState != null)
+                txtProviderState.text = $"{currentProvider} | {currentState}";
 
             _lastRenderedTitle = currentTitle;
             _lastRenderedArtist = currentArtist;

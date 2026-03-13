@@ -44,10 +44,119 @@ public static class WorldScaleResolver
         return SmoothPerUserScale(userKey, rawScale);
     }
 
+    /// <summary>
+    /// Clears the cached smoothed scale for a specific player so the next call
+    /// returns a fresh reading instead of carrying over a previous player's value.
+    /// Call this whenever the selected/locked target changes.
+    /// </summary>
+    public static void ForceRefreshForRig(VRRig rig)
+    {
+        if (rig == null) return;
+        string key = BuildPerUserKey(rig);
+        if (!string.IsNullOrEmpty(key))
+        {
+            SmoothedScaleByUser.Remove(key);
+            LastUpdateTimeByUser.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to retrieve the Steam persona name for the player owning the given rig
+    /// using the Steamworks SDK. Returns false if Steam is unavailable, the user has no
+    /// Steam ID, or the SDK hasn't received the name yet (call again next frame).
+    /// </summary>
+    public static bool TryGetSteamPersonaName(VRRig rig, out string steamName)
+    {
+        steamName = null;
+        if (rig == null || !SteamManager.Initialized)
+            return false;
+
+        string userId = rig.Creator?.GetPlayerRef()?.UserId;
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        int idx = userId.IndexOf("steam_", StringComparison.OrdinalIgnoreCase);
+        string candidate = idx >= 0 ? userId[(idx + 6)..] : userId;
+
+        if (!ulong.TryParse(candidate, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong steam64) || steam64 == 0)
+            return false;
+
+        try
+        {
+            CSteamID steamId = new CSteamID(steam64);
+            if (!steamId.IsValid())
+                return false;
+
+            // Request the Steam user info so the SDK caches it asynchronously;
+            // subsequent calls (next few frames) will return the real name.
+            SteamFriends.RequestUserInformation(steamId, true);
+
+            string name = SteamFriends.GetFriendPersonaName(steamId);
+            if (string.IsNullOrEmpty(name) || name.Equals("[unknown]", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            steamName = name;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Tries to read a world-scale value from Steam Rich Presence for this player.
+    /// Gorilla Tag publishes state via Steam RPC; if worldScale is present it's the
+    /// most authoritative source (cannot be faked via Photon alone).
+    /// </summary>
+    private static bool TryGetSteamRichPresenceScale(VRRig rig, out float scale)
+    {
+        scale = DefaultScale;
+        if (rig == null || !SteamManager.Initialized)
+            return false;
+
+        string userId = rig.Creator?.GetPlayerRef()?.UserId;
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        int idx = userId.IndexOf("steam_", StringComparison.OrdinalIgnoreCase);
+        string candidate = idx >= 0 ? userId[(idx + 6)..] : userId;
+
+        if (!ulong.TryParse(candidate, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong steam64) || steam64 == 0)
+            return false;
+
+        try
+        {
+            CSteamID steamId = new CSteamID(steam64);
+            if (!steamId.IsValid())
+                return false;
+
+            for (int i = 0; i < ScalePropertyKeys.Length; i++)
+            {
+                string rpVal = SteamFriends.GetFriendRichPresence(steamId, ScalePropertyKeys[i]);
+                if (!string.IsNullOrEmpty(rpVal) && TryConvertScaleValue(rpVal, out float parsed))
+                {
+                    scale = parsed;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static float ResolveRawWorldScale(VRRig rig)
     {
         if (rig == null)
             return DefaultScale;
+
+        // Steam Rich Presence is verified server-side and cannot be spoofed via Photon
+        if (TryGetSteamRichPresenceScale(rig, out float steamScale))
+            return steamScale;
 
         if (TryGetScaleFromObject(rig, out float rigScale))
             return rigScale;
@@ -83,7 +192,8 @@ public static class WorldScaleResolver
         if (Mathf.Abs(raw - current) > MaxSampleJump)
             raw = Mathf.Lerp(current, raw, 0.2f);
 
-        float alpha = Mathf.Clamp01(dt * 6f);
+        // Use faster alpha (10× dt) so Steam users' scale updates within ~2 refreshes
+        float alpha = Mathf.Clamp01(dt * 10f);
         float smoothed = Mathf.Lerp(current, raw, alpha);
         SmoothedScaleByUser[key] = smoothed;
         return smoothed;
@@ -149,16 +259,23 @@ public static class WorldScaleResolver
         bool hasTransform = IsValidScale(transformScale);
         bool hasBody = IsValidScale(bodyScale);
 
+        float result;
+
         if (hasTransform && hasBody)
-            return Mathf.Clamp((transformScale * 0.6f) + (bodyScale * 0.4f), MinScale, MaxScale);
+            result = Mathf.Clamp((transformScale * 0.6f) + (bodyScale * 0.4f), MinScale, MaxScale);
+        else if (hasTransform)
+            result = transformScale;
+        else if (hasBody)
+            result = bodyScale;
+        else
+            return DefaultScale;
 
-        if (hasTransform)
-            return transformScale;
+        // Snap near-default values to exactly 100% so unmodified players
+        // don't show e.g. "98%" or "103%" due to heuristic noise.
+        if (result >= 0.92f && result <= 1.08f)
+            return DefaultScale;
 
-        if (hasBody)
-            return bodyScale;
-
-        return DefaultScale;
+        return result;
     }
 
     private static float EstimateBodyScaleFromRigMath(VRRig rig)

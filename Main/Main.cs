@@ -1,6 +1,9 @@
 ﻿using BepInEx;
 using UnityEngine;
 using GorillaInfo.LAB;
+using HarmonyLib;
+using System;
+using System.Reflection;
 
 namespace GorillaInfo
 {
@@ -32,32 +35,46 @@ namespace GorillaInfo
         private const float MainPageInterval = 0.25f;
         private const float LobbyInterval = 0.45f;
         private bool _gunDestroyed;
+        private Harmony _harmony;
 
         private void Awake()
         {
             Instance = this;
             buttonClick = gameObject.AddComponent<ButtonClick>();
             InitializeModules();
+            ApplyCompatibilityPatches();
         }
 
         private void Update()
         {
             if (GorillaTagger.Instance == null) return;
 
+            if (spawned && (menuLoader == null || menuLoader.menuInstance == null))
+                spawned = false;
+
             if (!spawned)
             {
                 menuLoader.loadmenu();
-                spawned = true;
+                spawned = menuLoader != null && menuLoader.menuInstance != null;
+                if (!spawned)
+                    return;
             }
 
             HandleInputs();
 
-            if (menuState == MenuState.Opening || menuState == MenuState.Closing)
-                menuAnimations.animshandler();
+            try
+            {
+                if (menuState == MenuState.Opening || menuState == MenuState.Closing)
+                    menuAnimations.animshandler();
 
-            moreInfoHandler?.UpdateAnimation();
-            moreInfoHandler?.UpdatePlayerInfo();
-            gunLib?.UpdateNametags();
+                moreInfoHandler?.UpdateAnimation();
+                moreInfoHandler?.UpdatePlayerInfo();
+                gunLib?.UpdateNametags();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
+            }
 
             if (menuState == MenuState.Closed && !_gunDestroyed && spawned)
             {
@@ -71,12 +88,20 @@ namespace GorillaInfo
 
             if (menuState != MenuState.Open) return;
 
-            buttonClick.ballvisibility();
-            buttonClick.uptadeball();
-            gunLib.rearmgun();
-            gunLib.gunray();
-            musicHandler?.UpdateMusicData();
-            button.checkbuttons();
+            try
+            {
+                buttonClick.ballvisibility();
+                buttonClick.uptadeball();
+                gunLib.rearmgun();
+                gunLib.gunray();
+                musicHandler?.UpdateMusicData();
+                misc.UpdateModDisplay();
+                button.checkbuttons();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
+            }
 
             if (Time.time >= _nextMainPageUpdate)
             {
@@ -105,6 +130,32 @@ namespace GorillaInfo
             notificationManager = new NotificationManager();
             moreInfoHandler = new MoreInfoHandler();
             musicHandler = new MusicHandler();
+        }
+
+        private void ApplyCompatibilityPatches()
+        {
+            if (_harmony != null)
+                return;
+
+            _harmony = new Harmony(PluginInfo.GUID + ".compat");
+
+            Type builderPieceType = AccessTools.TypeByName("BuilderPiece");
+            MethodInfo awake = builderPieceType != null ? AccessTools.Method(builderPieceType, "Awake") : null;
+            MethodInfo finalizer = AccessTools.Method(typeof(GorillaInfoMain), nameof(BuilderPieceAwakeFinalizer));
+
+            if (awake != null && finalizer != null)
+            {
+                _harmony.Patch(awake, finalizer: new HarmonyMethod(finalizer));
+                Debug.Log("[GorillaInfo] Applied BuilderPiece Awake compatibility patch");
+            }
+        }
+
+        private static Exception BuilderPieceAwakeFinalizer(Exception __exception)
+        {
+            if (__exception is NullReferenceException)
+                return null;
+
+            return __exception;
         }
 
         private void Start()

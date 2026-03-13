@@ -70,6 +70,14 @@ public class GunLib
     private float _nextLockVisualUpdateTime;
     private LineRenderer _lockPointer;
     private GameObject _lockSphere;
+    private Camera _mainCamera;
+
+    private Camera GetMainCamera()
+    {
+        if (_mainCamera == null || !_mainCamera.gameObject.activeInHierarchy)
+            _mainCamera = Camera.main;
+        return _mainCamera;
+    }
 
     private static readonly Color[] GunStyleColors = new Color[]
     {
@@ -473,7 +481,7 @@ public class GunLib
         Vector3 targetPosition = rig.transform.position + Vector3.up * NametagHeight;
         tagTransform.position = targetPosition;
 
-        Camera camera = Camera.main;
+        Camera camera = GetMainCamera();
         if (camera != null)
         {
             Quaternion targetRotation = Quaternion.LookRotation(tagTransform.position - camera.transform.position);
@@ -588,7 +596,7 @@ public class GunLib
 
     private bool IsTagVisibleToCamera(VRRig rig, Vector3 tagPosition)
     {
-        Camera camera = Camera.main;
+        Camera camera = GetMainCamera();
         if (camera == null)
             return true;
 
@@ -665,7 +673,7 @@ public class GunLib
         if (hand != null)
             return hand.position;
 
-        Camera cam = Camera.main;
+        Camera cam = GetMainCamera();
         if (cam != null)
             return cam.transform.position;
 

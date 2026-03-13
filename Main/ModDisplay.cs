@@ -67,10 +67,15 @@ namespace GorillaInfo
             RefreshDisplay();
         }
 
+        private const float PageButtonRadius = 0.008f;
+
         public void Update()
         {
             GameObject fingerSphere = GorillaInfoMain.Instance.buttonClick?.fingerSphere;
             if (fingerSphere == null) return;
+
+            var miscPanel = GorillaInfoMain.Instance?.menuLoader?.miscPanel;
+            if (miscPanel == null || !miscPanel.activeInHierarchy) return;
 
             Vector3 fingerPos = fingerSphere.transform.position;
             PageButton(_prevButtonCol, -1, fingerPos);
@@ -82,7 +87,8 @@ namespace GorillaInfo
             if (col == null) return;
 
             int colId = col.GetInstanceID();
-            bool touching = col.bounds.Contains(fingerPos);
+            Vector3 closest = col.ClosestPoint(fingerPos);
+            bool touching = (fingerPos - closest).sqrMagnitude <= (PageButtonRadius * PageButtonRadius);
             _buttonTouchStates.TryGetValue(colId, out bool wasTouching);
 
             if (touching && !wasTouching)
